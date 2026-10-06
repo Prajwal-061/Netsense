@@ -50,6 +50,7 @@ The engine does the network work, the database stores what the engine finds, and
 │   │   ├── api/      # FastAPI routes
 │   │   ├── db/       # database models
 │   │   └── core/     # settings and configuration
+│   ├── scripts/      # runnable scripts
 │   ├── tests/
 │   └── .venv/        # Python virtual environment (not committed)
 ├── frontend/         # React dashboard (empty for now)
@@ -68,8 +69,17 @@ Requires Python 3.12+, git and nmap.
 python3 -m venv backend/.venv
 source backend/.venv/bin/activate
 
+# Install the dependencies
+pip install -r backend/requirements.txt
+
 # Create your local settings file, then edit it
 cp .env.example .env
+
+# Run the tests (they mock the switch, so no lab is needed)
+cd backend && pytest && cd ..
+
+# Collect interfaces, VLANs, MAC table, version and running config from the lab switch
+python backend/scripts/collect_switch.py
 ```
 
 `.env` holds the lab switch address and credentials. It is ignored by git and must never be committed.

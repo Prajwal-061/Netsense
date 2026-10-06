@@ -28,6 +28,7 @@ backend/app/engine/   discovery, scanning, device collection
 backend/app/api/      FastAPI routes
 backend/app/db/       database models
 backend/app/core/     settings/config
+backend/scripts/      runnable scripts (collect_switch.py)
 backend/tests/
 backend/.venv/        virtual environment (not committed)
 frontend/             React dashboard, empty for now
@@ -38,11 +39,13 @@ docs/
 ## Commands
 
 ```bash
-source backend/.venv/bin/activate    # activate the virtual environment
-backend/.venv/bin/pip install <pkg>  # install into the venv without activating
+source backend/.venv/bin/activate                      # activate the virtual environment
+backend/.venv/bin/pip install -r backend/requirements.txt   # install dependencies
+cd backend && .venv/bin/pytest                         # run the tests (no lab needed)
+backend/.venv/bin/python backend/scripts/collect_switch.py  # collect from the lab switch (SSH, show commands only)
 ```
 
-No dependencies, tests or app entry point exist yet. Update this section when they do.
+Imports are rooted at `backend/` (`from app.engine import collector`). Add `--show-config` to the script to print the full running config.
 
 ## Rules
 
@@ -54,4 +57,5 @@ No dependencies, tests or app entry point exist yet. Update this section when th
 
 ## Status
 
-Foundation only: folder structure, venv, .gitignore, .env.example, README. No discovery, scanning, SSH, database or API code yet.
+- Done: foundation, settings loading (`app/core/config.py`, pydantic-settings), device collector (`app/engine/collector.py`, Netmiko + TextFSM) with mocked unit tests.
+- Not built yet: ARP discovery, Nmap scanning, database, API, frontend.
