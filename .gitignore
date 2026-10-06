@@ -1,0 +1,19 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Secrets and local settings (copy .env.example to .env)
+.env
+
+# Databases
+*.db
+
+# Node / frontend
+node_modules/
+
+# Editor folders
+.vscode/
+.idea/
+*.swp

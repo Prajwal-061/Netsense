@@ -1,0 +1,79 @@
+# NetSense
+
+NetSense is a Raspberry Pi-based network discovery and diagnostics system. It finds the devices on a local network, checks which services they run, collects configuration and state from authorized Cisco devices, and keeps a history of what it saw.
+
+It is a college project, built and tested against a Cisco CML lab.
+
+> **Status:** project foundation only. No discovery, scanning or device collection code has been written yet.
+
+## Planned features
+
+- **Device discovery** with ARP requests (Scapy) to find live hosts on the local subnet
+- **Service scanning** with Nmap to identify open ports and services on discovered hosts
+- **Cisco device collection** over SSH (Netmiko): interfaces, VLANs, MAC address tables and running configs, from authorized devices only
+- **Scan history** stored in a database, so results can be compared over time
+- **REST API** built with FastAPI
+- **Web dashboard** built with React (later)
+
+## Planned architecture
+
+```
+            +--------------------+
+            |  React dashboard   |   frontend/  (later)
+            +---------+----------+
+                      | HTTP / JSON
+            +---------v----------+
+            |   FastAPI routes   |   backend/app/api
+            +----+----------+----+
+                 |          |
+     +-----------v--+   +---v-----------+
+     |    Engine    |-->|   Database    |   backend/app/db
+     +--+----+----+-+   +---------------+
+        |    |    |
+      ARP  Nmap  SSH                        backend/app/engine
+        |    |    |
+     +--v----v----v--------+
+     |    Local network    |
+     |  hosts and switches |
+     +---------------------+
+```
+
+The engine does the network work, the database stores what the engine finds, and the API exposes both to the dashboard. The whole backend is intended to run on a Raspberry Pi plugged into the network being inspected. During development an Ubuntu Server 24.04 VM stands in for the Pi.
+
+## Folder layout
+
+```
+.
+├── backend/
+│   ├── app/
+│   │   ├── engine/   # discovery, scanning, device collection
+│   │   ├── api/      # FastAPI routes
+│   │   ├── db/       # database models
+│   │   └── core/     # settings and configuration
+│   ├── tests/
+│   └── .venv/        # Python virtual environment (not committed)
+├── frontend/         # React dashboard (empty for now)
+├── lab/              # CML topology and switch configs
+├── docs/
+├── .env.example      # template for local settings
+└── README.md
+```
+
+## Getting started
+
+Requires Python 3.12+, git and nmap.
+
+```bash
+# Create and activate the virtual environment
+python3 -m venv backend/.venv
+source backend/.venv/bin/activate
+
+# Create your local settings file, then edit it
+cp .env.example .env
+```
+
+`.env` holds the lab switch address and credentials. It is ignored by git and must never be committed.
+
+## Responsible use
+
+NetSense scans networks and logs in to network devices. Use it only on networks and devices you own or are explicitly authorized to test.
