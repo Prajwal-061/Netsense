@@ -1,3 +1,4 @@
 netmiko
 pydantic-settings
 pytest
+scapy
