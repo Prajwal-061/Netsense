@@ -80,9 +80,15 @@ cd backend && pytest && cd ..
 
 # Collect interfaces, VLANs, MAC table, version and running config from the lab switch
 python backend/scripts/collect_switch.py
+
+# Discover devices on the lab network with an ARP scan (raw packets need root)
+sudo backend/.venv/bin/python -B backend/scripts/discover.py
+
+# Discover, port-scan the discovered hosts with Nmap, and guess each device's type
+sudo backend/.venv/bin/python -B backend/scripts/scan.py
 ```
 
-`.env` holds the lab switch address and credentials. It is ignored by git and must never be committed.
+`.env` holds the lab switch address and credentials, and `ALLOWED_SUBNETS`, the list of networks the discovery and port scans are permitted to target. It is ignored by git and must never be committed.
 
 ## Responsible use
 
