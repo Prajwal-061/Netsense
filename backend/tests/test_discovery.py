@@ -169,6 +169,14 @@ def test_local_networks_parses_ip_output_and_skips_loopback():
         ("00:0c:29:23:56:f6", "VMware, Inc."),
         ("B8:27:EB:11:22:33", "Raspberry Pi Foundation"),
         ("aa:bb:cc:00:01:00", "Locally administered"),
+        # Virtualization prefixes win over both the OUI list and the
+        # locally administered check.
+        ("52:54:00:12:34:56", "QEMU/KVM virtual machine"),
+        ("52:54:00:AB:CD:EF", "QEMU/KVM virtual machine"),
+        ("08:00:27:aa:bb:cc", "VirtualBox virtual machine"),
+        ("00:15:5d:01:02:03", "Hyper-V virtual machine"),
+        ("02:42:ac:11:00:02", "Docker container"),
+        ("52:54:01:12:34:56", "Locally administered"),
         ("00:00:00:00:00:01", None),
     ],
 )

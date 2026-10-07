@@ -16,6 +16,17 @@ from app.core.config import get_settings
 
 BROADCAST_MAC = "ff:ff:ff:ff:ff:ff"
 
+# MAC prefixes that hypervisors give their virtual network cards. Checked
+# before the OUI list because some are not registered OUIs at all (52:54:00
+# and 02:42 are locally administered conventions), and others are registered
+# under a company name that hides the product (08:00:27 is "PCS Systemtechnik").
+VIRTUAL_MAC_PREFIXES = {
+    "52:54:00": "QEMU/KVM virtual machine",
+    "08:00:27": "VirtualBox virtual machine",
+    "00:15:5d": "Hyper-V virtual machine",
+    "02:42": "Docker container",
+}
+
 
 class DiscoveryError(Exception):
     """Base class for every error raised by discovery."""
@@ -108,6 +119,10 @@ def lookup_vendor(mac: str) -> str:
     manufacturer. Scapy bundles a copy of Wireshark's OUI list, so no internet
     is needed.
     """
+    mac = mac.lower()
+    for prefix, name in VIRTUAL_MAC_PREFIXES.items():
+        if mac.startswith(prefix + ":"):
+            return name
     # Bit 1 of the first byte set = "locally administered": the address was
     # made up by software (VMs, lab images, phone MAC randomisation), so its
     # prefix is not a registered OUI.

@@ -25,6 +25,7 @@ def scan(*ports, timed_out=False, ip="192.168.17.10"):
 
 CISCO_SSH = port(22, "ssh", "Cisco SSH", "1.25", "protocol 2.0", "IOS")
 UBUNTU_SSH = port(22, "ssh", "OpenSSH", "9.6p1 Ubuntu 3ubuntu13", "Ubuntu Linux; protocol 2.0", "Linux")
+PLAIN_SSH = port(22, "ssh", "OpenSSH", "10.2", "protocol 2.0")
 NGINX = port(80, "http", "nginx", "1.24.0")
 
 
@@ -45,7 +46,10 @@ def test_network_device_from_mac_vendor_when_no_ports_are_open():
 def test_server_when_it_offers_server_services():
     result = classifier.classify(device("VMware, Inc."), scan(UBUNTU_SSH, NGINX))
 
-    assert result == {"type": classifier.SERVER, "reason": "offers server services: http (80)"}
+    assert result == {
+        "type": classifier.SERVER,
+        "reason": "offers server services: http (80); MAC prefix is VMware, Inc.",
+    }
 
 
 def test_linux_host_when_only_ssh_reports_linux():
@@ -58,7 +62,53 @@ def test_linux_host_when_only_ssh_reports_linux():
 def test_virtual_when_vmware_mac_is_the_only_evidence():
     result = classifier.classify(device("VMware, Inc."), scan())
 
-    assert result == {"type": classifier.VIRTUAL, "reason": "MAC vendor is VMware, Inc."}
+    assert result == {"type": classifier.VIRTUAL, "reason": "MAC prefix is VMware, Inc."}
+
+
+def test_qemu_vm_with_plain_openssh_is_a_linux_unix_host():
+    # Host 192.168.17.129 in the lab: a 52:54:00 MAC and an SSH banner that
+    # names no OS. It used to come out as "unknown".
+    result = classifier.classify(
+        device("QEMU/KVM virtual machine", ip="192.168.17.129", mac="52:54:00:12:34:56"),
+        scan(PLAIN_SSH, ip="192.168.17.129"),
+    )
+
+    assert result == {
+        "type": classifier.LINUX_HOST,
+        "reason": "ssh banner on port 22 is 'OpenSSH 10.2', which suggests Linux/Unix; "
+        "MAC prefix is QEMU/KVM virtual machine",
+    }
+
+
+def test_plain_openssh_suggests_linux_unix_without_any_mac_hint():
+    result = classifier.classify(device("Unknown"), scan(PLAIN_SSH))
+
+    assert result == {
+        "type": classifier.LINUX_HOST,
+        "reason": "ssh banner on port 22 is 'OpenSSH 10.2', which suggests Linux/Unix",
+    }
+
+
+def test_openssh_for_windows_is_not_a_linux_unix_host():
+    windows_ssh = port(22, "ssh", "OpenSSH", "for_Windows_9.5", "protocol 2.0")
+
+    assert classifier.classify(device("Unknown"), scan(windows_ssh))["type"] == classifier.UNKNOWN
+
+
+def test_qemu_vm_with_no_open_ports_is_virtual():
+    result = classifier.classify(device("QEMU/KVM virtual machine"), scan())
+
+    assert result == {
+        "type": classifier.VIRTUAL,
+        "reason": "MAC prefix is QEMU/KVM virtual machine",
+    }
+
+
+def test_virtual_mac_is_noted_on_a_network_device_too():
+    result = classifier.classify(device("QEMU/KVM virtual machine"), scan(CISCO_SSH))
+
+    assert result["type"] == classifier.NETWORK_DEVICE
+    assert result["reason"].endswith("; MAC prefix is QEMU/KVM virtual machine")
 
 
 def test_banner_beats_mac_vendor():

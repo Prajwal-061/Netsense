@@ -11,7 +11,7 @@ import re
 
 NETWORK_DEVICE = "network device"
 SERVER = "server"
-LINUX_HOST = "Linux host"
+LINUX_HOST = "Linux/Unix host"
 VIRTUAL = "VMware/virtual"
 UNKNOWN = "unknown"
 
@@ -20,7 +20,11 @@ _NETWORK_OS = re.compile(
     r"\b(cisco|ios|ios-xe|nx-os|juniper|junos|arista|mikrotik|routeros|fortinet)\b", re.I
 )
 _LINUX = re.compile(r"\b(linux|ubuntu|debian|centos|red hat|fedora|raspbian)\b", re.I)
-_VIRTUAL_VENDOR = re.compile(r"\b(vmware|virtualbox|qemu|xensource|parallels)\b", re.I)
+# Matches the vendor strings from discovery.lookup_vendor, including its
+# VIRTUAL_MAC_PREFIXES names such as "QEMU/KVM virtual machine".
+_VIRTUAL_VENDOR = re.compile(
+    r"\b(vmware|virtual machine|docker container|xensource|parallels)\b", re.I
+)
 
 # Nmap service names that mean "this machine serves something to others".
 # SSH is left out: almost everything manageable runs it.
@@ -41,8 +45,17 @@ def classify(device: dict, scan: dict | None = None) -> dict:
     device is a discovery result ({"ip", "mac", "vendor"}) and scan is the
     scanner result for the same IP ({"ports": [...]}), if there is one.
     """
-    ports = scan["ports"] if scan else []
     vendor = device.get("vendor", "")
+    guess = _classify(vendor, scan)
+    # A virtual MAC is worth reporting even when stronger evidence decided
+    # the type: "what it runs" and "what it runs on" are both useful.
+    if guess["type"] != VIRTUAL and _VIRTUAL_VENDOR.search(vendor):
+        guess["reason"] += f"; MAC prefix is {vendor}"
+    return guess
+
+
+def _classify(vendor: str, scan: dict | None) -> dict:
+    ports = scan["ports"] if scan else []
 
     for port in ports:
         if _NETWORK_OS.search(f"{port['product']} {port['os_type']}"):
@@ -68,9 +81,19 @@ def classify(device: dict, scan: dict | None = None) -> dict:
                 "reason": f"{port['service']} banner on port {port['port']} is "
                 f"'{_banner(port)}', which reports Linux",
             }
+    for port in ports:
+        # A plain OpenSSH banner names no OS. OpenSSH is the standard SSH
+        # server on Linux, the BSDs and macOS, so that is the likely family.
+        # The Windows build identifies itself as "OpenSSH for_Windows".
+        if port["product"] == "OpenSSH" and "windows" not in port["version"].lower():
+            return {
+                "type": LINUX_HOST,
+                "reason": f"{port['service']} banner on port {port['port']} is "
+                f"'{_banner(port)}', which suggests Linux/Unix",
+            }
 
     if _VIRTUAL_VENDOR.search(vendor):
-        return {"type": VIRTUAL, "reason": f"MAC vendor is {vendor}"}
+        return {"type": VIRTUAL, "reason": f"MAC prefix is {vendor}"}
 
     if scan and scan.get("timed_out"):
         return {"type": UNKNOWN, "reason": "port scan timed out before it finished"}
