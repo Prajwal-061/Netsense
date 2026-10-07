@@ -2,3 +2,5 @@ netmiko
 pydantic-settings
 pytest
 scapy
+sqlalchemy
+alembic

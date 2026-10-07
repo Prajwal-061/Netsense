@@ -49,7 +49,9 @@ The engine does the network work, the database stores what the engine finds, and
 │   │   ├── engine/   # discovery, scanning, device collection
 │   │   ├── api/      # FastAPI routes
 │   │   ├── db/       # database models
+│   │   ├── services/ # runs the engine and saves results
 │   │   └── core/     # settings and configuration
+│   ├── migrations/   # Alembic database migrations
 │   ├── scripts/      # runnable scripts
 │   ├── tests/
 │   └── .venv/        # Python virtual environment (not committed)
@@ -84,7 +86,11 @@ python backend/scripts/collect_switch.py
 # Discover devices on the lab network with an ARP scan (raw packets need root)
 sudo backend/.venv/bin/python -B backend/scripts/discover.py
 
-# Discover, port-scan the discovered hosts with Nmap, and guess each device's type
+# Create the SQLite database, backend/netsense.db (run as yourself, not with sudo)
+cd backend && alembic upgrade head && cd ..
+
+# Discover, port-scan the discovered hosts with Nmap, guess each device's type,
+# save the scan and report what changed since the previous one
 sudo backend/.venv/bin/python -B backend/scripts/scan.py
 ```
 

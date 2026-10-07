@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     # can split a plain "a,b" string instead.
     allowed_subnets: Annotated[list[IPv4Network], NoDecode] = [IPv4Network("192.168.17.0/24")]
 
+    # SQLAlchemy database URL. SQLite is one file; switching to PostgreSQL is
+    # only a different URL, e.g. postgresql+psycopg://user:pass@host/netsense
+    database_url: str = f"sqlite:///{PROJECT_ROOT / 'backend' / 'netsense.db'}"
+
     @field_validator("allowed_subnets", mode="before")
     @classmethod
     def _split_subnets(cls, value):
