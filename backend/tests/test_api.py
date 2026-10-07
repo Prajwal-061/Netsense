@@ -337,6 +337,28 @@ def test_identical_config_is_backed_up_once_and_its_text_is_never_exposed(
     assert "enable secret" not in second.text
 
 
+def test_config_text_is_served_with_its_secrets_masked(client, switch_id, switch_ssh):
+    client.post(f"/devices/{switch_id}/collect")
+    backup_id = client.get(f"/devices/{switch_id}/configs").json()[0]["id"]
+
+    response = client.get(f"/devices/{switch_id}/configs/{backup_id}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["config"] == "hostname SW1\nenable secret <redacted>\nend"
+    assert body["lines"] == 3
+    assert "not-a-real-hash" not in response.text
+
+
+def test_config_backup_of_another_device_is_404(client, switch_id, switch_ssh):
+    client.post(f"/devices/{switch_id}/collect")
+    backup_id = client.get(f"/devices/{switch_id}/configs").json()[0]["id"]
+    other = next(d["id"] for d in client.get("/devices").json() if d["id"] != switch_id)
+
+    assert client.get(f"/devices/{other}/configs/{backup_id}").status_code == 404
+    assert client.get(f"/devices/{switch_id}/configs/999").status_code == 404
+
+
 def test_collect_refuses_devices_not_classified_as_network_devices(client, switch_ssh):
     connect, _ = switch_ssh
     scan(client, HOST_PC)

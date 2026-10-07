@@ -191,3 +191,26 @@ def device_configs(
         .order_by(models.ConfigBackup.id.desc())
     )
     return [_backup_schema(backup) for backup in backups]
+
+
+@router.get("/{device_id}/configs/{backup_id}", response_model=schemas.ConfigBackupDetail)
+def device_config(
+    backup_id: int,
+    device: models.Device = Depends(get_device),
+    session: Session = Depends(get_session),
+):
+    """One stored running config, with its secrets masked.
+
+    Password hashes, SNMP communities and keys are replaced before the text
+    leaves the server, because this API has no authentication yet.
+    """
+    backup = session.get(models.ConfigBackup, backup_id)
+    if backup is None or backup.device_id != device.id:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            f"Config backup {backup_id} not found for device {device.id}.",
+        )
+    return schemas.ConfigBackupDetail(
+        **_backup_schema(backup).model_dump(),
+        config=collection_service.redact_config(backup.config),
+    )

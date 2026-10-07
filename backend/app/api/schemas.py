@@ -116,6 +116,13 @@ class ConfigBackup(BaseModel):
     lines: int
 
 
+class ConfigBackupDetail(ConfigBackup):
+    config: str = Field(
+        description="The config text with password hashes, SNMP communities and "
+        "keys replaced by <redacted>. Best effort, for display only."
+    )
+
+
 class CollectResult(BaseModel):
     device_id: int
     host: str

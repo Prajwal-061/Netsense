@@ -56,7 +56,7 @@ The engine does the network work, the database stores what the engine finds, and
 │   ├── scripts/      # runnable scripts
 │   ├── tests/
 │   └── .venv/        # Python virtual environment (not committed)
-├── frontend/         # React dashboard (empty for now)
+├── frontend/         # React dashboard (Vite, TypeScript, Tailwind, TanStack Query)
 ├── lab/              # CML topology and switch configs
 ├── docs/
 ├── .env.example      # template for local settings
@@ -97,6 +97,19 @@ sudo backend/.venv/bin/python -B backend/scripts/scan.py
 # Run the API (as yourself, not root), then open http://192.168.17.132:8000/docs
 cd backend && uvicorn app.main:app --host 192.168.17.132 --port 8000
 ```
+
+### Dashboard
+
+Requires Node.js LTS (for example with [nvm](https://github.com/nvm-sh/nvm): `nvm install --lts`).
+
+```bash
+cd frontend
+npm install
+npm run dev        # then open http://192.168.17.132:5173
+npm test           # page tests, no backend needed
+```
+
+The dashboard calls the API at `http://192.168.17.132:8000`. To use another address, put `VITE_API_URL=...` in `frontend/.env.local` and add the dashboard's own address to `CORS_ORIGINS` in `.env`. The API must be running for the dashboard to show anything.
 
 The API has **no authentication yet**, so run it only on an isolated lab network. Binding to the lab address, rather than `0.0.0.0`, keeps it off every other interface.
 

@@ -1,0 +1,26 @@
+@import 'tailwindcss';
+
+body {
+  @apply bg-slate-100 text-slate-900 antialiased;
+}
+
+/* Moving bar for work with no known percentage (a running scan). */
+@keyframes indeterminate {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(400%);
+  }
+}
+
+.progress-indeterminate {
+  animation: indeterminate 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-indeterminate {
+    animation: none;
+    width: 100%;
+  }
+}

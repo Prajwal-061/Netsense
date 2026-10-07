@@ -1,11 +1,34 @@
 """Collection service: save what the Netmiko collector read from a device."""
 
 import hashlib
+import re
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import ConfigBackup, Device, DeviceCollection, utcnow
+
+
+REDACTED = "<redacted>"
+
+# Keywords that are followed by a secret somewhere on the rest of the line.
+# The rest of the line is masked, not just the next word: the secret is not
+# always the next word ("key 1 md5 7 <hash>"), and losing a trailing "RO" is
+# better than leaking a hash. "password-encryption" and "key chain NAME" are
+# settings, not secrets, and do not match.
+_SECRET = re.compile(
+    r"(\b(?:secret|password|community|key-string|pre-shared-key|key(?!\s+chain\b))\s+).*",
+    re.IGNORECASE,
+)
+
+
+def redact_config(config: str) -> str:
+    """Mask password hashes, SNMP communities and keys in a Cisco IOS config.
+
+    Best effort, for display only: it covers the common secret-bearing
+    commands, not every possible one. The stored backup is left untouched.
+    """
+    return "\n".join(_SECRET.sub(rf"\g<1>{REDACTED}", line) for line in config.splitlines())
 
 
 def _device_for_host(session: Session, host: str) -> Device | None:

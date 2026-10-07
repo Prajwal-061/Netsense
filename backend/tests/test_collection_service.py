@@ -69,3 +69,50 @@ def test_collection_keeps_structured_data_and_raw_text_fallback(session):
     assert saved.vlans == vlans
     assert saved.mac_table == raw_mac_table
     assert saved.collected_at.tzinfo is not None
+
+
+IOS_CONFIG = """\
+service password-encryption
+hostname SW1
+enable secret 9 $9$abcDEF123
+enable password 7 0822455D0A16
+username netsense privilege 15 secret 9 $9$xyz789
+snmp-server community s3cretRO RO
+snmp-server community s3cretRW RW 10
+key chain OSPF-KEYS
+ key 1
+  key-string 7 094F471A1A0A
+crypto isakmp key MyPSK address 10.0.0.1
+ntp authentication-key 1 md5 15060E1F10 7
+tacacs-server key 7 1234ABCD
+interface Vlan10
+ ip address 192.168.17.10 255.255.255.0
+ ip ospf message-digest-key 1 md5 7 AAAA1111
+line vty 0 4
+ password 7 110A1016141D
+ transport input ssh
+"""
+
+
+def test_redact_config_masks_secrets_and_keeps_everything_else():
+    redacted = collection_service.redact_config(IOS_CONFIG)
+
+    for secret in (
+        "$9$abcDEF123", "0822455D0A16", "$9$xyz789", "s3cretRO", "s3cretRW",
+        "094F471A1A0A", "MyPSK", "15060E1F10", "1234ABCD", "AAAA1111", "110A1016141D",
+    ):  # fmt: skip
+        assert secret not in redacted
+
+    lines = redacted.splitlines()
+    assert len(lines) == len(IOS_CONFIG.splitlines())
+    # Structure and non-secret settings survive, so the config stays readable.
+    assert "service password-encryption" in lines
+    assert "enable secret <redacted>" in lines
+    assert "username netsense privilege 15 secret <redacted>" in lines
+    assert "snmp-server community <redacted>" in lines
+    assert "key chain OSPF-KEYS" in lines
+    assert "ntp authentication-key <redacted>" in lines
+    assert " ip ospf message-digest-key <redacted>" in lines
+    assert "crypto isakmp key <redacted>" in lines
+    assert " ip address 192.168.17.10 255.255.255.0" in lines
+    assert " transport input ssh" in lines
