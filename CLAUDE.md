@@ -11,7 +11,7 @@ Networking student studying for CCNA. Briefly explain what you are doing at each
 - Discover devices on the local network with ARP (Scapy) and scan services with Nmap
 - SSH into authorized Cisco devices with Netmiko to collect interfaces, VLANs, MAC tables and running configs
 - Store scan results and history in a database (SQLAlchemy 2.0, SQLite file `backend/netsense.db`, git-ignored)
-- Expose everything through a FastAPI backend and, later, a React dashboard
+- Expose everything through a FastAPI backend (built) and, later, a React dashboard
 - Eventually run on a Raspberry Pi
 
 ## Environment
@@ -25,7 +25,8 @@ Networking student studying for CCNA. Briefly explain what you are doing at each
 
 ```
 backend/app/engine/   discovery, scanning, classification, device collection
-backend/app/api/      FastAPI routes
+backend/app/api/      FastAPI routes (scans.py, devices.py, health.py), schemas.py, deps.py
+backend/app/main.py   FastAPI app: CORS, startup checks, routers
 backend/app/db/       database models (models.py) and engine setup (database.py)
 backend/app/services/ glue between engine and database (scan_service.py, collection_service.py)
 backend/migrations/   Alembic migrations (config in backend/alembic.ini)
@@ -47,6 +48,7 @@ cd backend && .venv/bin/pytest                         # run the tests (no lab n
 cd backend && .venv/bin/alembic upgrade head           # create/upgrade the database (never with sudo)
 cd backend && .venv/bin/alembic revision --autogenerate -m "what changed"  # new migration after editing models.py
 backend/.venv/bin/python backend/scripts/collect_switch.py  # collect from the lab switch (SSH, show commands only)
+cd backend && .venv/bin/uvicorn app.main:app --host 192.168.17.132 --port 8000  # run the API (never as root); docs at http://192.168.17.132:8000/docs
 sudo backend/.venv/bin/python -B backend/scripts/discover.py  # ARP scan of the lab network (root: ask first)
 sudo backend/.venv/bin/python -B backend/scripts/scan.py      # ARP scan + Nmap + classifier, saved to the database, prints changes (root: ask first)
 ```
@@ -56,6 +58,16 @@ Imports are rooted at `backend/` (`from app.engine import collector`). Add `--sh
 Discovery and the Nmap scanner only target addresses inside `ALLOWED_SUBNETS` (`.env`, default `192.168.17.0/24`). The VM's other interface, `ens160` on 192.168.44.0/24, is the NAT network and must never be scanned. `-B` stops root writing `__pycache__` files into the repo. `sudo` needs a password on this VM, so the user has to run the sudo commands themselves. `scanner.scan_hosts()` works without root (it falls back from a SYN scan to a connect scan).
 
 Every change to `app/db/models.py` needs a migration; `tests/test_db.py` fails if one is missing. `netsense.db` can hold running configs with password hashes, so it must stay out of git. `collect_switch.py` does not save to the database yet (`collection_service.py` has the functions for it).
+
+## API
+
+- **No authentication yet. It is required before NetSense runs on any real network.** Anyone who can reach the port can start scans and make the server SSH into devices with the stored credentials. Until then: lab network only, and bind uvicorn to the lab address (192.168.17.132), never 0.0.0.0, so it is not served on the NAT interface.
+- The API must not run as root. ARP scans need CAP_NET_RAW; `GET /health` reports `raw_sockets` true/false. Without it, `POST /scans` is accepted and the scan is then saved as failed with the reason. Dev option: recreate the venv with `python3 -m venv --copies` and `sudo setcap cap_net_raw+ep` on `.venv/bin/python`, `python3` and `python3.12` (never on the default symlinked venv: that would change `/usr/bin/python3`). On the Pi: a systemd unit with a dedicated user and `AmbientCapabilities=CAP_NET_RAW`.
+- Without root, Nmap runs a connect scan (`-sT`); capabilities on Python are not passed on to the Nmap child process.
+- One scan at a time (`scan_service.start_scan` raises `ScanInProgressError`, the API answers 409). The lock is per process, so run a single uvicorn worker. Scans left "running" by a crash are marked failed at API start-up.
+- `POST /scans` never takes an interface from the client, and config backup text is never returned by the API (metadata only).
+- `POST /devices/{id}/collect` sends the `.env` credentials to any device classified "network device" inside `ALLOWED_SUBNETS`. The classification comes from a banner the device controls, so restrict this to an explicit list of authorized hosts before leaving the lab.
+- Tests set fake credentials and an in-memory `DATABASE_URL` in `tests/conftest.py` before importing the app, so they never read `.env` or `netsense.db`.
 
 ## Rules
 
@@ -67,5 +79,5 @@ Every change to `app/db/models.py` needs a migration; `tests/test_db.py` fails i
 
 ## Status
 
-- Done: foundation, settings loading (`app/core/config.py`, pydantic-settings), device collector (`app/engine/collector.py`, Netmiko + TextFSM), ARP discovery (`app/engine/discovery.py`, Scapy, offline OUI vendor lookup), Nmap service scanner (`app/engine/scanner.py`, XML parsed with ElementTree), rule-based device classifier (`app/engine/classifier.py`), database models and Alembic migrations, scan service with change detection between scans, all with unit tests that need no lab.
-- Not built yet: API, frontend.
+- Done: foundation, settings loading (`app/core/config.py`, pydantic-settings), device collector (`app/engine/collector.py`, Netmiko + TextFSM), ARP discovery (`app/engine/discovery.py`, Scapy, offline OUI vendor lookup), Nmap service scanner (`app/engine/scanner.py`, XML parsed with ElementTree), rule-based device classifier (`app/engine/classifier.py`), database models and Alembic migrations, scan service with change detection between scans, FastAPI backend (scans in the background, devices, collection, CORS), all with unit tests that need no lab.
+- Not built yet: authentication, frontend.

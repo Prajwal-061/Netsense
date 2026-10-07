@@ -5,6 +5,7 @@ database, and the models know nothing about networking. This layer is the
 only place the two meet.
 """
 
+import threading
 from dataclasses import dataclass, field
 from ipaddress import IPv4Network
 
@@ -13,6 +14,16 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Device, Scan, ScanResult, utcnow
 from app.engine import classifier, discovery, scanner
+
+
+# Held while checking for a running scan and creating the new one, so two
+# requests arriving together cannot both pass the check. This protects one
+# process; several API worker processes would need a database-level lock.
+_start_lock = threading.Lock()
+
+
+class ScanInProgressError(Exception):
+    """A scan is already running, so another one may not start."""
 
 
 @dataclass
@@ -113,31 +124,59 @@ def compare_scans(scan: Scan, previous: Scan | None) -> ChangeReport:
     return report
 
 
-def run_scan(
+def change_report(session: Session, scan: Scan) -> ChangeReport | None:
+    """The change report for a scan, or None if the scan did not complete."""
+    if scan.status != Scan.STATUS_COMPLETED:
+        return None
+    return compare_scans(scan, previous_scan(session, scan))
+
+
+def start_scan(
     session: Session,
     subnet: str | None = None,
     interface: str | None = None,
-    top_ports: int = 100,
-    host_timeout: int = 60,
     allowed: list[IPv4Network] | None = None,
-) -> tuple[Scan, ChangeReport]:
-    """Discover, port-scan and classify a subnet, save it, and report changes.
+) -> tuple[Scan, str]:
+    """Record a new scan as "running" and return it with the interface to use.
 
-    The subnet and interface are detected when not given. Raises the engine's
-    own errors (DiscoveryError, ScannerError); a scan that had already started
-    is then left in the database with status "failed".
+    Sends nothing. The subnet and interface are detected when not given.
+    Raises SubnetNotAllowedError for a subnet outside ALLOWED_SUBNETS and
+    ScanInProgressError if another scan is still running.
     """
     network, interface = discovery.resolve_target(subnet, interface, allowed)
     discovery.check_allowed(network, allowed)
 
-    # Committed before any packet is sent, so an interrupted scan still
-    # leaves a record of when it started.
-    scan = Scan(subnet=str(network), status=Scan.STATUS_RUNNING)
-    session.add(scan)
-    session.commit()
+    with _start_lock:
+        running = session.scalars(
+            select(Scan).where(Scan.status == Scan.STATUS_RUNNING).limit(1)
+        ).first()
+        if running is not None:
+            raise ScanInProgressError(
+                f"Scan #{running.id} is still running (started {running.started_at:%Y-%m-%d %H:%M} UTC)."
+            )
+        # Committed before any packet is sent, so an interrupted scan still
+        # leaves a record of when it started.
+        scan = Scan(subnet=str(network), status=Scan.STATUS_RUNNING)
+        session.add(scan)
+        session.commit()
+    return scan, interface
 
+
+def execute_scan(
+    session: Session,
+    scan: Scan,
+    interface: str,
+    top_ports: int = 100,
+    host_timeout: int = 60,
+    allowed: list[IPv4Network] | None = None,
+) -> ChangeReport:
+    """Run the pipeline for a scan created by start_scan and save its results.
+
+    Raises the engine's own errors (DiscoveryError, ScannerError); the scan
+    is then left in the database with status "failed" and the error message.
+    """
     try:
-        devices = discovery.arp_scan(str(network), interface, allowed=allowed)
+        devices = discovery.arp_scan(scan.subnet, interface, allowed=allowed)
         scans = scanner.scan_hosts(
             [device["ip"] for device in devices], top_ports, host_timeout, allowed
         )
@@ -146,12 +185,42 @@ def run_scan(
         scan.finished_at = utcnow()
         # One commit for all results: a scan is saved completely or not at all.
         session.commit()
-    except Exception as exc:
+    except BaseException as exc:
+        # BaseException so that Ctrl-C also marks the scan failed instead of
+        # leaving it "running" forever and blocking every later scan.
         session.rollback()
         scan.status = Scan.STATUS_FAILED
         scan.finished_at = utcnow()
-        scan.error = str(exc)
+        scan.error = str(exc) or type(exc).__name__
         session.commit()
         raise
 
-    return scan, compare_scans(scan, previous_scan(session, scan))
+    return compare_scans(scan, previous_scan(session, scan))
+
+
+def run_scan(
+    session: Session,
+    subnet: str | None = None,
+    interface: str | None = None,
+    top_ports: int = 100,
+    host_timeout: int = 60,
+    allowed: list[IPv4Network] | None = None,
+) -> tuple[Scan, ChangeReport]:
+    """Start a scan and run it to the end: discover, port-scan, classify, save."""
+    scan, interface = start_scan(session, subnet, interface, allowed)
+    return scan, execute_scan(session, scan, interface, top_ports, host_timeout, allowed)
+
+
+def fail_interrupted_scans(session: Session) -> int:
+    """Mark scans still "running" as failed and return how many there were.
+
+    For program start-up only: a scan cannot survive a restart, so any that
+    is still "running" at that point was cut off by a crash or power loss.
+    """
+    interrupted = session.scalars(select(Scan).where(Scan.status == Scan.STATUS_RUNNING)).all()
+    for scan in interrupted:
+        scan.status = Scan.STATUS_FAILED
+        scan.finished_at = utcnow()
+        scan.error = "Interrupted: the program stopped before the scan finished."
+    session.commit()
+    return len(interrupted)

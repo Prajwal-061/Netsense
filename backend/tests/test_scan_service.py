@@ -214,3 +214,42 @@ def test_comparison_only_uses_scans_of_the_same_subnet(session):
     _, report = run(session, SWITCH, subnet="192.168.17.0/28")
 
     assert report.previous_scan_id is None
+
+
+# --- one scan at a time ----------------------------------------------------
+
+
+def test_a_scan_cannot_start_while_another_is_running(session):
+    session.add(Scan(subnet=SUBNET, status=Scan.STATUS_RUNNING))
+    session.commit()
+
+    with fake_network(SWITCH):
+        with pytest.raises(scan_service.ScanInProgressError, match="still running"):
+            scan_service.run_scan(session, SUBNET, "ens256", allowed=ALLOWED)
+
+    assert len(session.scalars(select(Scan)).all()) == 1
+
+
+def test_interrupting_a_scan_marks_it_failed_instead_of_leaving_it_running(session):
+    with patch.object(discovery, "arp_scan", side_effect=KeyboardInterrupt):
+        with pytest.raises(KeyboardInterrupt):
+            scan_service.run_scan(session, SUBNET, "ens256", allowed=ALLOWED)
+
+    scan = session.scalars(select(Scan)).one()
+    assert scan.status == Scan.STATUS_FAILED
+    assert scan.error == "KeyboardInterrupt"
+    # So the next scan is not blocked.
+    assert run(session, SWITCH)[0].status == Scan.STATUS_COMPLETED
+
+
+def test_scans_left_running_by_a_crash_are_failed_at_startup(session):
+    finished, _ = run(session, SWITCH)
+    session.add(Scan(subnet=SUBNET, status=Scan.STATUS_RUNNING))
+    session.commit()
+
+    assert scan_service.fail_interrupted_scans(session) == 1
+
+    statuses = [scan.status for scan in session.scalars(select(Scan).order_by(Scan.id))]
+    assert statuses == [Scan.STATUS_COMPLETED, Scan.STATUS_FAILED]
+    assert scan_service.fail_interrupted_scans(session) == 0
+    assert finished.error is None

@@ -8,13 +8,20 @@ from pathlib import Path
 
 from sqlalchemy import Engine, create_engine, event, inspect
 from sqlalchemy.engine import make_url
+from sqlalchemy.pool import StaticPool
 
 from app.core.config import get_settings
 
 
 def create_db_engine(url: str | None = None) -> Engine:
     """Create the engine for a database URL (default: DATABASE_URL)."""
-    engine = create_engine(url or get_settings().database_url)
+    url = url or get_settings().database_url
+    options = {}
+    if make_url(url).get_backend_name() == "sqlite" and make_url(url).database in (None, ":memory:"):
+        # An in-memory SQLite database exists only inside one connection, so
+        # every session and thread must share that single connection (tests).
+        options = {"poolclass": StaticPool, "connect_args": {"check_same_thread": False}}
+    engine = create_engine(url, **options)
     if engine.dialect.name == "sqlite":
         # SQLite ignores foreign keys unless asked to enforce them, once per
         # connection. PostgreSQL always enforces them.

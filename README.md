@@ -47,10 +47,11 @@ The engine does the network work, the database stores what the engine finds, and
 ├── backend/
 │   ├── app/
 │   │   ├── engine/   # discovery, scanning, device collection
-│   │   ├── api/      # FastAPI routes
+│   │   ├── api/      # FastAPI routes and schemas
 │   │   ├── db/       # database models
 │   │   ├── services/ # runs the engine and saves results
-│   │   └── core/     # settings and configuration
+│   │   ├── core/     # settings and configuration
+│   │   └── main.py   # FastAPI application
 │   ├── migrations/   # Alembic database migrations
 │   ├── scripts/      # runnable scripts
 │   ├── tests/
@@ -92,7 +93,12 @@ cd backend && alembic upgrade head && cd ..
 # Discover, port-scan the discovered hosts with Nmap, guess each device's type,
 # save the scan and report what changed since the previous one
 sudo backend/.venv/bin/python -B backend/scripts/scan.py
+
+# Run the API (as yourself, not root), then open http://192.168.17.132:8000/docs
+cd backend && uvicorn app.main:app --host 192.168.17.132 --port 8000
 ```
+
+The API has **no authentication yet**, so run it only on an isolated lab network. Binding to the lab address, rather than `0.0.0.0`, keeps it off every other interface.
 
 `.env` holds the lab switch address and credentials, and `ALLOWED_SUBNETS`, the list of networks the discovery and port scans are permitted to target. It is ignored by git and must never be committed.
 

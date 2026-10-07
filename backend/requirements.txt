@@ -4,3 +4,6 @@ pytest
 scapy
 sqlalchemy
 alembic
+fastapi
+uvicorn
+httpx2

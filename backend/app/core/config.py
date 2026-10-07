@@ -33,9 +33,17 @@ class Settings(BaseSettings):
     # only a different URL, e.g. postgresql+psycopg://user:pass@host/netsense
     database_url: str = f"sqlite:///{PROJECT_ROOT / 'backend' / 'netsense.db'}"
 
-    @field_validator("allowed_subnets", mode="before")
+    # Web pages allowed to call the API from a browser (CORS), comma-separated.
+    # The defaults are the Vite dev server (port 5173) on a laptop or on this VM.
+    cors_origins: Annotated[list[str], NoDecode] = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://192.168.17.132:5173",
+    ]
+
+    @field_validator("allowed_subnets", "cors_origins", mode="before")
     @classmethod
-    def _split_subnets(cls, value):
+    def _split_commas(cls, value):
         if isinstance(value, str):
             return [part.strip() for part in value.split(",") if part.strip()]
         return value

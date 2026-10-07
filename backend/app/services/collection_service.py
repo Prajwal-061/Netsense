@@ -16,11 +16,15 @@ def _device_for_host(session: Session, host: str) -> Device | None:
 
 
 def save_collection(
-    session: Session, host: str, interfaces, vlans, mac_table
+    session: Session, host: str, interfaces, vlans, mac_table, device: Device | None = None
 ) -> DeviceCollection:
-    """Store one snapshot of a device's interfaces, VLANs and MAC table."""
+    """Store one snapshot of a device's interfaces, VLANs and MAC table.
+
+    The snapshot is linked to device if given, otherwise to the scanned
+    device currently at that address.
+    """
     collection = DeviceCollection(
-        device=_device_for_host(session, host),
+        device=device or _device_for_host(session, host),
         host=host,
         interfaces=interfaces,
         vlans=vlans,
@@ -31,7 +35,9 @@ def save_collection(
     return collection
 
 
-def save_config_backup(session: Session, host: str, config: str) -> tuple[ConfigBackup, bool]:
+def save_config_backup(
+    session: Session, host: str, config: str, device: Device | None = None
+) -> tuple[ConfigBackup, bool]:
     """Store a running config unless it is identical to the host's latest one.
 
     Returns (backup, created). When the config is unchanged, the existing
@@ -53,7 +59,7 @@ def save_config_backup(session: Session, host: str, config: str) -> tuple[Config
         return latest, False
 
     backup = ConfigBackup(
-        device=_device_for_host(session, host), host=host, sha256=digest, config=config
+        device=device or _device_for_host(session, host), host=host, sha256=digest, config=config
     )
     session.add(backup)
     session.commit()

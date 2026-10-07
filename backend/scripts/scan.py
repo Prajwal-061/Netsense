@@ -13,7 +13,6 @@ Only subnets inside ALLOWED_SUBNETS (.env) can be scanned.
 """
 
 import argparse
-import os
 import sys
 from pathlib import Path
 
@@ -95,9 +94,9 @@ def main() -> int:
         # reported before the root check.
         subnet, interface = discovery.resolve_target(args.subnet, args.interface)
         discovery.check_allowed(subnet)
-        if os.geteuid() != 0:
+        if not discovery.can_open_raw_socket():
             print(
-                "ERROR: the ARP scan needs root. Run:\n"
+                "ERROR: the ARP scan needs root or CAP_NET_RAW. Run:\n"
                 "  sudo backend/.venv/bin/python -B backend/scripts/scan.py",
                 file=sys.stderr,
             )
@@ -113,7 +112,12 @@ def main() -> int:
                 print_results(scan)
                 print()
             print_changes(report)
-    except (discovery.DiscoveryError, scanner.ScannerError, ValueError) as exc:
+    except (
+        discovery.DiscoveryError,
+        scanner.ScannerError,
+        scan_service.ScanInProgressError,
+        ValueError,
+    ) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
     return 0

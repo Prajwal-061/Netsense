@@ -6,6 +6,7 @@ root, because they are built by hand and written to a raw socket.
 """
 
 import json
+import socket
 import subprocess
 from ipaddress import IPv4Interface, IPv4Network
 
@@ -34,6 +35,18 @@ class DiscoveryError(Exception):
 
 class SubnetNotAllowedError(DiscoveryError):
     """The requested subnet is not inside any network in ALLOWED_SUBNETS."""
+
+
+def can_open_raw_socket() -> bool:
+    """True if this process may open the kind of socket an ARP scan needs.
+
+    That means it is root or has the CAP_NET_RAW capability. Sends nothing.
+    """
+    try:
+        socket.socket(socket.AF_PACKET, socket.SOCK_RAW).close()
+    except OSError:
+        return False
+    return True
 
 
 def local_networks() -> list[tuple[str, IPv4Network]]:
@@ -154,8 +167,8 @@ def arp_scan(
         answered, _ = srp(request, iface=interface, timeout=timeout, verbose=False)
     except PermissionError as exc:
         raise DiscoveryError(
-            "ARP scanning needs root: sending hand-built Ethernet frames uses a "
-            "raw socket. Run with sudo and the venv's Python."
+            "ARP scanning needs root or the CAP_NET_RAW capability: sending "
+            "hand-built Ethernet frames uses a raw socket."
         ) from exc
 
     # Each answer is a (sent, received) pair. In the ARP reply, psrc/hwsrc are
