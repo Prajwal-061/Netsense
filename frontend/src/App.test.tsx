@@ -9,7 +9,9 @@ import { expect, test } from 'vitest'
 import App from './App'
 import {
   BACKUP,
+  BACKUP_2,
   COLLECT_RESULT,
+  DIFF_1_TO_2,
   Failure,
   HEALTH,
   INTERFACES,
@@ -174,9 +176,68 @@ test('network device: collect, then interfaces and the config backup are shown',
   expect(screen.getByRole('cell', { name: 'administratively down' })).toHaveClass('text-red-700')
   expect(screen.getAllByRole('cell', { name: 'up' })[0]).toHaveClass('text-emerald-700')
 
+  expect(screen.getByText(/first config backup/)).toBeInTheDocument()
+
   await user.click(screen.getByRole('tab', { name: 'Config backups' }))
   expect(await screen.findByText(/enable secret <redacted>/)).toBeInTheDocument()
   expect(screen.getByText(/3 lines/)).toBeInTheDocument()
+  // One backup: marked as the first, no "changed" badge, nothing to compare.
+  expect(screen.getByText('first backup')).toBeInTheDocument()
+  expect(screen.queryByText('Config changed since last backup')).not.toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: 'Compare backups' }))
+  expect(screen.getByText(/There is only one backup so far/)).toBeInTheDocument()
+})
+
+test('config tab marks changed backups and shows a coloured diff of two backups', async () => {
+  const api = installFakeApi({
+    'GET /devices/2/configs': [BACKUP_2, BACKUP],
+    'GET /devices/2/configs/2': { ...BACKUP_2, config: 'hostname SW1\nvlan 20\nend' },
+    'GET /devices/2/configs/diff?from_id=1&to_id=2': DIFF_1_TO_2,
+    'GET /devices/2/configs/diff?from_id=2&to_id=2': { ...DIFF_1_TO_2, from_backup: BACKUP_2, changed: false, diff: '' },
+  })
+  const user = open('/devices/2')
+  await user.click(await screen.findByRole('tab', { name: 'Config backups' }))
+
+  // The newest backup differs from the one before it.
+  expect(await screen.findByText('Config changed since last backup')).toBeInTheDocument()
+  const list = within(screen.getByRole('list', { name: 'Config backups' }))
+  expect(list.getByText('changed +4 / -1 lines')).toBeInTheDocument()
+  expect(list.getByText('first backup')).toBeInTheDocument()
+  expect(list.getByText('current')).toBeInTheDocument()
+
+  // "Show what changed" compares the previous backup with the newest.
+  await user.click(screen.getByRole('button', { name: 'Show what changed' }))
+  expect(await screen.findByText('+vlan 20')).toHaveClass('text-emerald-300')
+  expect(screen.getByText('+ switchport access vlan 20')).toHaveClass('text-emerald-300')
+  expect(screen.getByText('- switchport access vlan 10')).toHaveClass('text-red-300')
+  expect(screen.getByText(/switchport mode access/)).not.toHaveClass('text-emerald-300', 'text-red-300')
+  expect(screen.getByText('+4 added')).toBeInTheDocument()
+  expect(screen.getByText('-1 removed')).toBeInTheDocument()
+  expect(screen.getByLabelText('From (older)')).toHaveValue('1')
+  expect(screen.getByLabelText('To (newer)')).toHaveValue('2')
+  expect(api.calls).toContain('GET /devices/2/configs/diff?from_id=1&to_id=2')
+
+  // Picking other backups asks the API for that pair.
+  await user.selectOptions(screen.getByLabelText('From (older)'), '2')
+  expect(await screen.findByText('The same backup is selected on both sides.')).toBeInTheDocument()
+
+  // Clicking a backup in the list goes back to viewing its text.
+  await user.click(list.getByText('changed +4 / -1 lines'))
+  expect(await screen.findByText(/vlan 20/)).toBeInTheDocument()
+  expect(screen.queryByText('+vlan 20')).not.toBeInTheDocument()
+})
+
+test('collecting a changed config says so', async () => {
+  installFakeApi({
+    'POST /devices/2/collect': { ...COLLECT_RESULT, first_backup: false, config_changed: true, config_backup: BACKUP_2 },
+  })
+  const user = open('/devices/2')
+
+  await user.click(await screen.findByRole('button', { name: 'Collect from device' }))
+
+  expect(
+    await screen.findByText(/The running config has changed since the last backup \(\+4 \/ -1 lines\)/),
+  ).toBeInTheDocument()
 })
 
 test('a collection that fails shows the reason from the API', async () => {

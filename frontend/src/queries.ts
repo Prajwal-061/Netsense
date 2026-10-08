@@ -105,6 +105,16 @@ export function useConfig(id: number, backupId: number | undefined) {
   })
 }
 
+export function useConfigDiff(id: number, fromId: number | undefined, toId: number | undefined) {
+  return useQuery({
+    queryKey: ['devices', id, 'configs', 'diff', fromId, toId],
+    queryFn: () => api.getConfigDiff(id, fromId!, toId!),
+    enabled: fromId !== undefined && toId !== undefined,
+    // Two stored backups always produce the same diff.
+    staleTime: Infinity,
+  })
+}
+
 export function useCollect(id: number) {
   const queryClient = useQueryClient()
   return useMutation({

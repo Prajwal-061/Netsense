@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ApiError } from '../api'
-import type { CollectedKind, Device } from '../api'
+import type { CollectedKind, ConfigBackup, Device } from '../api'
 import DataTable from '../components/DataTable'
 import {
+  Badge,
   Button,
   Card,
   EmptyState,
@@ -22,6 +23,7 @@ import {
   useCollect,
   useCollected,
   useConfig,
+  useConfigDiff,
   useConfigs,
   useDevice,
   useLatestCompletedScan,
@@ -196,9 +198,11 @@ function Collected({ device }: { device: Device }) {
             Collected {describeCount(collect.data.interfaces, 'interface')},{' '}
             {describeCount(collect.data.vlans, 'VLAN')} and{' '}
             {describeCount(collect.data.mac_table, 'MAC table entry', 'MAC table entries')}.{' '}
-            {collect.data.config_changed
-              ? 'The running config is new or has changed, so a backup was saved.'
-              : 'The running config is unchanged since the last backup.'}
+            {collect.data.first_backup
+              ? "This is the device's first config backup."
+              : collect.data.config_changed
+                ? `The running config has changed since the last backup (${changeSize(collect.data.config_backup)}).`
+                : 'The running config is unchanged since the last backup.'}
           </p>
         )}
       </div>
@@ -265,12 +269,17 @@ function CollectedTab({ deviceId, kind }: { deviceId: number; kind: CollectedKin
   )
 }
 
+/** "+4 / -1 lines": how much a backup differs from the one before it. */
+function changeSize(backup: ConfigBackup): string {
+  return `+${backup.lines_added} / -${backup.lines_removed} lines`
+}
+
 function ConfigsTab({ deviceId }: { deviceId: number }) {
   const configs = useConfigs(deviceId)
+  const [mode, setMode] = useState<'view' | 'compare'>('view')
   const [chosen, setChosen] = useState<number>()
-  // Show the newest backup until the user picks another.
-  const selected = chosen ?? configs.data?.[0]?.id
-  const config = useConfig(deviceId, selected)
+  const [chosenFrom, setChosenFrom] = useState<number>()
+  const [chosenTo, setChosenTo] = useState<number>()
 
   if (configs.isPending) return <Loading />
   if (configs.isError) {
@@ -280,55 +289,214 @@ function ConfigsTab({ deviceId }: { deviceId: number }) {
       </div>
     )
   }
-  if (configs.data.length === 0) return <NothingCollected />
+  const backups = configs.data // newest first
+  if (backups.length === 0) return <NothingCollected />
+
+  const latest = backups[0]
+  // Until the user picks something: view the newest backup, and compare the
+  // previous backup with the newest.
+  const selected = chosen ?? latest.id
+  const fromId = chosenFrom ?? backups[1]?.id
+  const toId = chosenTo ?? latest.id
 
   return (
-    <div className="grid gap-4 p-4 lg:grid-cols-[18rem_1fr]">
-      <ul className="space-y-2">
-        {configs.data.map((backup, index) => (
-          <li key={backup.id}>
-            <button
-              type="button"
-              onClick={() => setChosen(backup.id)}
-              aria-pressed={backup.id === selected}
-              className={`w-full rounded-md border px-3 py-2 text-left text-sm ${
-                backup.id === selected
-                  ? 'border-blue-500 bg-blue-50'
-                  : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
-              }`}
-            >
-              <span className="flex items-center justify-between gap-2 font-medium text-slate-900">
-                {formatDateTime(backup.collected_at)}
-                {index === 0 && <span className="text-xs font-normal text-emerald-700">current</span>}
-              </span>
-              <span className="mt-0.5 block text-xs text-slate-500">
-                {backup.lines} lines · unchanged as of {timeAgo(backup.last_seen_at)}
-              </span>
-              <span className="mt-0.5 block font-mono text-xs text-slate-400" title={backup.sha256}>
-                sha256 {backup.sha256.slice(0, 12)}
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
+    <div className="space-y-4 p-4">
+      {latest.changed && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          <Badge tone="amber">Config changed since last backup</Badge>
+          <span>
+            {changeSize(latest)}, collected {formatDateTime(latest.collected_at)}.
+          </span>
+          <button
+            type="button"
+            className="font-medium text-blue-700 hover:underline"
+            onClick={() => {
+              setChosenFrom(backups[1].id)
+              setChosenTo(latest.id)
+              setMode('compare')
+            }}
+          >
+            Show what changed
+          </button>
+        </div>
+      )}
 
-      <div className="min-w-0">
-        {config.isPending ? (
-          <Loading label="Loading config..." />
-        ) : config.isError ? (
-          <ErrorBox error={config.error} onRetry={() => void config.refetch()} />
-        ) : (
-          <>
-            <p className="mb-2 text-xs text-slate-500">
-              Passwords, SNMP communities and keys are masked by the API before the config is
-              sent to the browser.
+      <div className="grid gap-4 lg:grid-cols-[18rem_1fr]">
+        <ul className="space-y-2" aria-label="Config backups">
+          {backups.map((backup, index) => (
+            <li key={backup.id}>
+              <button
+                type="button"
+                onClick={() => {
+                  setChosen(backup.id)
+                  setMode('view')
+                }}
+                aria-pressed={mode === 'view' && backup.id === selected}
+                className={`w-full rounded-md border px-3 py-2 text-left text-sm ${
+                  mode === 'view' && backup.id === selected
+                    ? 'border-blue-500 bg-blue-50'
+                    : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+                }`}
+              >
+                <span className="flex items-center justify-between gap-2 font-medium text-slate-900">
+                  {formatDateTime(backup.collected_at)}
+                  {index === 0 && <span className="text-xs font-normal text-emerald-700">current</span>}
+                </span>
+                <span className="mt-1 flex flex-wrap items-center gap-2">
+                  {backup.changed === null ? (
+                    <Badge>first backup</Badge>
+                  ) : backup.changed ? (
+                    <Badge tone="amber">changed {changeSize(backup)}</Badge>
+                  ) : (
+                    <Badge>no change</Badge>
+                  )}
+                  <span className="text-xs text-slate-500">#{backup.id}</span>
+                </span>
+                <span className="mt-1 block text-xs text-slate-500">
+                  {backup.lines} lines · unchanged as of {timeAgo(backup.last_seen_at)}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+
+        <div className="min-w-0">
+          <div className="mb-3 inline-flex rounded-md border border-slate-300 p-0.5 text-sm" role="group" aria-label="Config view">
+            {(['view', 'compare'] as const).map((item) => (
+              <button
+                key={item}
+                type="button"
+                aria-pressed={mode === item}
+                onClick={() => setMode(item)}
+                className={`rounded px-3 py-1 font-medium ${
+                  mode === item ? 'bg-slate-800 text-white' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {item === 'view' ? 'View config' : 'Compare backups'}
+              </button>
+            ))}
+          </div>
+
+          {mode === 'view' ? (
+            <ConfigText deviceId={deviceId} backupId={selected} />
+          ) : backups.length < 2 ? (
+            <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-6 text-center text-sm text-slate-600">
+              There is only one backup so far. A second one is stored when a collection finds
+              that the config has changed, and then the two can be compared.
             </p>
-            <pre className="max-h-[32rem] overflow-auto rounded-md bg-slate-950 p-4 font-mono text-xs leading-relaxed text-slate-100">
-              {config.data.config}
-            </pre>
-          </>
-        )}
+          ) : (
+            <>
+              <div className="mb-3 flex flex-wrap items-end gap-3">
+                <BackupSelect label="From (older)" backups={backups} value={fromId!} onChange={setChosenFrom} />
+                <BackupSelect label="To (newer)" backups={backups} value={toId} onChange={setChosenTo} />
+              </div>
+              <ConfigComparison deviceId={deviceId} fromId={fromId!} toId={toId} />
+            </>
+          )}
+        </div>
       </div>
     </div>
   )
+}
+
+function BackupSelect({
+  label,
+  backups,
+  value,
+  onChange,
+}: {
+  label: string
+  backups: ConfigBackup[]
+  value: number
+  onChange: (id: number) => void
+}) {
+  return (
+    <label className="text-xs font-medium text-slate-600">
+      {label}
+      <select
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+        className="mt-1 block rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
+      >
+        {backups.map((backup) => (
+          <option key={backup.id} value={backup.id}>
+            #{backup.id} · {formatDateTime(backup.collected_at)}
+          </option>
+        ))}
+      </select>
+    </label>
+  )
+}
+
+function ConfigText({ deviceId, backupId }: { deviceId: number; backupId: number }) {
+  const config = useConfig(deviceId, backupId)
+
+  if (config.isPending) return <Loading label="Loading config..." />
+  if (config.isError) return <ErrorBox error={config.error} onRetry={() => void config.refetch()} />
+  return (
+    <>
+      <p className="mb-2 text-xs text-slate-500">
+        Passwords, SNMP communities and keys are masked by the API before the config is sent to
+        the browser.
+      </p>
+      <pre className="max-h-[32rem] overflow-auto rounded-md bg-slate-950 p-4 font-mono text-xs leading-relaxed text-slate-100">
+        {config.data.config}
+      </pre>
+    </>
+  )
+}
+
+function ConfigComparison({ deviceId, fromId, toId }: { deviceId: number; fromId: number; toId: number }) {
+  const comparison = useConfigDiff(deviceId, fromId, toId)
+
+  if (comparison.isPending) return <Loading label="Comparing..." />
+  if (comparison.isError) {
+    return <ErrorBox error={comparison.error} onRetry={() => void comparison.refetch()} />
+  }
+  const data = comparison.data
+  if (!data.changed) {
+    return (
+      <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-6 text-center text-sm text-slate-600">
+        {fromId === toId
+          ? 'The same backup is selected on both sides.'
+          : 'These two backups have the same configuration. Timestamp lines are ignored.'}
+      </p>
+    )
+  }
+  return (
+    <>
+      <p className="mb-2 flex flex-wrap items-center gap-2 text-sm">
+        <Badge tone="green">+{data.lines_added} added</Badge>
+        <Badge tone="red">-{data.lines_removed} removed</Badge>
+        <span className="text-xs text-slate-500">
+          Timestamp lines are ignored and secrets are masked.
+        </span>
+      </p>
+      <DiffView diff={data.diff} />
+    </>
+  )
+}
+
+/** A unified diff in monospace: added lines green, removed lines red. */
+function DiffView({ diff }: { diff: string }) {
+  return (
+    <div className="max-h-[32rem] overflow-auto rounded-md bg-slate-950 py-3 font-mono text-xs leading-relaxed">
+      {/* min-w-max keeps each line's background colour as wide as the longest line. */}
+      <div className="min-w-max">
+        {diff.split('\n').map((line, index) => (
+          <div key={index} className={`px-4 whitespace-pre ${diffLineColour(line)}`}>
+            {line || ' '}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function diffLineColour(line: string): string {
+  if (line.startsWith('+++') || line.startsWith('---')) return 'font-semibold text-slate-400'
+  if (line.startsWith('@@')) return 'text-sky-400'
+  if (line.startsWith('+')) return 'bg-emerald-500/15 text-emerald-300'
+  if (line.startsWith('-')) return 'bg-red-500/15 text-red-300'
+  return 'text-slate-300'
 }

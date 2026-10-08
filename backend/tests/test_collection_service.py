@@ -1,7 +1,9 @@
 """Collection service tests on an in-memory database."""
 
 from app.db.models import ConfigBackup, Device
+from app.engine import config_diff
 from app.services import collection_service
+from tests.sample_configs import BASE, NEW_VLAN, SAME_LATER
 
 HOST = "192.168.17.10"
 CONFIG_A = "hostname SW1\n!\ninterface Vlan10\n ip address 192.168.17.10 255.255.255.0\n!\nend"
@@ -95,7 +97,7 @@ line vty 0 4
 
 
 def test_redact_config_masks_secrets_and_keeps_everything_else():
-    redacted = collection_service.redact_config(IOS_CONFIG)
+    redacted = config_diff.redact_config(IOS_CONFIG)
 
     for secret in (
         "$9$abcDEF123", "0822455D0A16", "$9$xyz789", "s3cretRO", "s3cretRW",
@@ -116,3 +118,36 @@ def test_redact_config_masks_secrets_and_keeps_everything_else():
     assert "crypto isakmp key <redacted>" in lines
     assert " ip address 192.168.17.10 255.255.255.0" in lines
     assert " transport input ssh" in lines
+
+
+def test_config_with_only_new_timestamps_is_not_stored_again(session):
+    first, _ = collection_service.save_config_backup(session, HOST, BASE)
+    second, created = collection_service.save_config_backup(session, HOST, SAME_LATER)
+
+    assert not created
+    assert second.id == first.id
+    assert session.query(ConfigBackup).count() == 1
+    # The stored text is the raw config as first collected, header included.
+    assert first.config == BASE
+    assert first.sha256 == config_diff.config_hash(BASE)
+
+
+def test_real_change_is_stored_even_when_timestamps_changed_too(session):
+    collection_service.save_config_backup(session, HOST, BASE)
+    backup, created = collection_service.save_config_backup(session, HOST, NEW_VLAN)
+
+    assert created
+    assert session.query(ConfigBackup).count() == 2
+    assert collection_service.latest_backup(session, HOST).id == backup.id
+    assert collection_service.latest_backup(session, HOST, before_id=backup.id).config == BASE
+
+
+def test_comparison_does_not_trust_a_stale_stored_hash(session):
+    # A backup saved before normalisation existed: its hash is of the raw text.
+    old = ConfigBackup(host=HOST, sha256="0" * 64, config=BASE)
+    session.add(old)
+    session.commit()
+
+    _, created = collection_service.save_config_backup(session, HOST, SAME_LATER)
+
+    assert not created

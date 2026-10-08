@@ -5,6 +5,7 @@ import { vi } from 'vitest'
 import type {
   CollectResult,
   ConfigBackup,
+  ConfigDiff,
   Device,
   Health,
   Port,
@@ -85,6 +86,45 @@ export const BACKUP: ConfigBackup = {
   last_seen_at: '2026-10-07T19:23:36Z',
   sha256: 'aefada55756be2df2b2dc9bcdca39a297f8db4e1404b7a0e5564a3f842399910',
   lines: 3,
+  changed: null,
+  lines_added: 0,
+  lines_removed: 0,
+}
+
+/** A second backup, in which a VLAN was added and an interface moved into it. */
+export const BACKUP_2: ConfigBackup = {
+  id: 2,
+  collected_at: '2026-10-08T09:00:00Z',
+  last_seen_at: '2026-10-08T09:05:00Z',
+  sha256: '5d2c1f0e9b8a7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d',
+  lines: 6,
+  changed: true,
+  lines_added: 4,
+  lines_removed: 1,
+}
+
+export const DIFF_1_TO_2: ConfigDiff = {
+  device_id: 2,
+  from_backup: BACKUP,
+  to_backup: BACKUP_2,
+  changed: true,
+  lines_added: 4,
+  lines_removed: 1,
+  diff: [
+    '--- backup #1 (2026-10-07 19:23 UTC)',
+    '+++ backup #2 (2026-10-08 09:00 UTC)',
+    '@@ -9,6 +9,9 @@',
+    ' vlan 10',
+    '  name USERS',
+    ' !',
+    '+vlan 20',
+    '+ name SERVERS',
+    '+!',
+    ' interface Ethernet0/1',
+    '- switchport access vlan 10',
+    '+ switchport access vlan 20',
+    '  switchport mode access',
+  ].join('\n'),
 }
 
 export const COLLECT_RESULT: CollectResult = {
@@ -96,7 +136,8 @@ export const COLLECT_RESULT: CollectResult = {
   vlans: 1,
   mac_table: null,
   config_backup: BACKUP,
-  config_changed: true,
+  first_backup: true,
+  config_changed: false,
 }
 
 export const INTERFACES = {
@@ -144,7 +185,8 @@ export function installFakeApi(overrides: Record<string, Reply> = {}): FakeApi {
   }
 
   vi.stubGlobal('fetch', async (url: string, init?: RequestInit) => {
-    const key = `${init?.method ?? 'GET'} ${new URL(url).pathname}`
+    const { pathname, search } = new URL(url)
+    const key = `${init?.method ?? 'GET'} ${pathname}${search}`
     api.calls.push(key)
     if (api.offline) throw new TypeError('Failed to fetch')
 

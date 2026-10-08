@@ -2,7 +2,7 @@
 
 from ipaddress import IPv4Network
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -11,7 +11,7 @@ from app.api.deps import get_session
 from app.api.scans import result_schema
 from app.core.config import Settings, get_settings
 from app.db import models
-from app.engine import classifier, collector, discovery
+from app.engine import classifier, collector, config_diff, discovery
 from app.services import collection_service
 
 router = APIRouter(prefix="/devices", tags=["devices"])
@@ -44,13 +44,63 @@ def _device_schema(session: Session, device: models.Device) -> schemas.Device:
     )
 
 
-def _backup_schema(backup: models.ConfigBackup) -> schemas.ConfigBackup:
+def _backup_label(backup: models.ConfigBackup) -> str:
+    return f"backup #{backup.id} ({backup.collected_at:%Y-%m-%d %H:%M} UTC)"
+
+
+def _backup_schema(
+    backup: models.ConfigBackup, previous: models.ConfigBackup | None
+) -> schemas.ConfigBackup:
+    """Describe a backup, including how it differs from the one before it."""
+    diff = config_diff.diff_configs(previous.config, backup.config) if previous else None
     return schemas.ConfigBackup(
         id=backup.id,
         collected_at=backup.collected_at,
         last_seen_at=backup.last_seen_at,
         sha256=backup.sha256,
         lines=len(backup.config.splitlines()),
+        changed=diff.changed if diff else None,
+        lines_added=diff.lines_added if diff else 0,
+        lines_removed=diff.lines_removed if diff else 0,
+    )
+
+
+def _device_backups(session: Session, device: models.Device) -> list[models.ConfigBackup]:
+    """A device's config backups, oldest first."""
+    return list(
+        session.scalars(
+            select(models.ConfigBackup)
+            .where(models.ConfigBackup.device_id == device.id)
+            .order_by(models.ConfigBackup.id)
+        )
+    )
+
+
+def _diff_schema(
+    device: models.Device, backups: list[models.ConfigBackup], old_id: int, new_id: int
+) -> schemas.ConfigDiff:
+    by_id = {backup.id: backup for backup in backups}
+    for backup_id in (old_id, new_id):
+        if backup_id not in by_id:
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND,
+                f"Config backup {backup_id} not found for device {device.id}.",
+            )
+    old, new = by_id[old_id], by_id[new_id]
+    diff = config_diff.diff_configs(old.config, new.config, _backup_label(old), _backup_label(new))
+
+    def describe(backup: models.ConfigBackup) -> schemas.ConfigBackup:
+        index = backups.index(backup)
+        return _backup_schema(backup, backups[index - 1] if index else None)
+
+    return schemas.ConfigDiff(
+        device_id=device.id,
+        from_backup=describe(old),
+        to_backup=describe(new),
+        changed=diff.changed,
+        lines_added=diff.lines_added,
+        lines_removed=diff.lines_removed,
+        diff=diff.diff,
     )
 
 
@@ -116,7 +166,8 @@ def collect_device(
     collection = collection_service.save_collection(
         session, host, interfaces, vlans, mac_table, device=device
     )
-    backup, changed = collection_service.save_config_backup(session, host, config, device=device)
+    backup, created = collection_service.save_config_backup(session, host, config, device=device)
+    previous = collection_service.latest_backup(session, host, before_id=backup.id)
 
     def count(data) -> int | None:
         return len(data) if isinstance(data, list) else None
@@ -129,8 +180,9 @@ def collect_device(
         interfaces=count(interfaces),
         vlans=count(vlans),
         mac_table=count(mac_table),
-        config_backup=_backup_schema(backup),
-        config_changed=changed,
+        config_backup=_backup_schema(backup, previous),
+        first_backup=created and previous is None,
+        config_changed=created and previous is not None,
     )
 
 
@@ -182,15 +234,42 @@ def device_configs(
 ):
     """Running-config versions stored for the device, newest first.
 
-    Metadata only: the config text can contain password hashes, and this API
-    has no authentication yet.
+    Each one says whether it differs from the backup before it. Metadata
+    only; the text is served, masked, by the two endpoints below.
     """
-    backups = session.scalars(
-        select(models.ConfigBackup)
-        .where(models.ConfigBackup.device_id == device.id)
-        .order_by(models.ConfigBackup.id.desc())
-    )
-    return [_backup_schema(backup) for backup in backups]
+    backups = _device_backups(session, device)
+    described = [
+        _backup_schema(backup, backups[index - 1] if index else None)
+        for index, backup in enumerate(backups)
+    ]
+    return described[::-1]
+
+
+# The two /diff routes must come before /configs/{backup_id}: routes are
+# tried in order, and "diff" would otherwise be taken for a backup id.
+@router.get("/{device_id}/configs/diff/latest", response_model=schemas.ConfigDiff)
+def device_config_diff_latest(
+    device: models.Device = Depends(get_device), session: Session = Depends(get_session)
+):
+    """What changed between the device's previous backup and its latest one."""
+    backups = _device_backups(session, device)
+    if len(backups) < 2:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            f"Device {device.id} has {len(backups)} config backup(s); two are needed to compare.",
+        )
+    return _diff_schema(device, backups, backups[-2].id, backups[-1].id)
+
+
+@router.get("/{device_id}/configs/diff", response_model=schemas.ConfigDiff)
+def device_config_diff(
+    from_id: int = Query(description="Backup to compare from (normally the older one)."),
+    to_id: int = Query(description="Backup to compare to (normally the newer one)."),
+    device: models.Device = Depends(get_device),
+    session: Session = Depends(get_session),
+):
+    """What changed between any two config backups of the device."""
+    return _diff_schema(device, _device_backups(session, device), from_id, to_id)
 
 
 @router.get("/{device_id}/configs/{backup_id}", response_model=schemas.ConfigBackupDetail)
@@ -204,13 +283,15 @@ def device_config(
     Password hashes, SNMP communities and keys are replaced before the text
     leaves the server, because this API has no authentication yet.
     """
-    backup = session.get(models.ConfigBackup, backup_id)
-    if backup is None or backup.device_id != device.id:
+    backups = _device_backups(session, device)
+    backup = next((item for item in backups if item.id == backup_id), None)
+    if backup is None:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND,
             f"Config backup {backup_id} not found for device {device.id}.",
         )
+    index = backups.index(backup)
     return schemas.ConfigBackupDetail(
-        **_backup_schema(backup).model_dump(),
-        config=collection_service.redact_config(backup.config),
+        **_backup_schema(backup, backups[index - 1] if index else None).model_dump(),
+        config=config_diff.redact_config(backup.config),
     )

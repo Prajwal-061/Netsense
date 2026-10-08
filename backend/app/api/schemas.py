@@ -112,14 +112,35 @@ class ConfigBackup(BaseModel):
     id: int
     collected_at: datetime = Field(description="When this version was first seen.")
     last_seen_at: datetime = Field(description="When it was last confirmed unchanged.")
-    sha256: str
+    sha256: str = Field(description="Hash of the config with timestamp lines removed.")
     lines: int
+    changed: bool | None = Field(
+        description="Whether this backup differs from the one before it. "
+        "Null for a device's first backup, which has nothing to compare with."
+    )
+    lines_added: int = Field(description="Lines added since the previous backup.")
+    lines_removed: int = Field(description="Lines removed since the previous backup.")
 
 
 class ConfigBackupDetail(ConfigBackup):
     config: str = Field(
         description="The config text with password hashes, SNMP communities and "
         "keys replaced by <redacted>. Best effort, for display only."
+    )
+
+
+class ConfigDiff(BaseModel):
+    """What changed between two config backups of a device."""
+
+    device_id: int
+    from_backup: ConfigBackup
+    to_backup: ConfigBackup
+    changed: bool
+    lines_added: int
+    lines_removed: int
+    diff: str = Field(
+        description="Unified diff, empty when nothing changed. Lines starting with "
+        "'+' were added and '-' removed. Timestamp lines are ignored and secrets masked."
     )
 
 
@@ -131,8 +152,14 @@ class CollectResult(BaseModel):
     interfaces: int | None = Field(description="Entries parsed, or null if stored as raw text.")
     vlans: int | None
     mac_table: int | None
-    config_backup: ConfigBackup
-    config_changed: bool = Field(description="False if identical to the previous backup.")
+    config_backup: ConfigBackup = Field(
+        description="The backup that now holds the device's current config."
+    )
+    first_backup: bool = Field(description="True if the device had no backup before this.")
+    config_changed: bool = Field(
+        description="True if the config differs from the previous backup, so a new "
+        "backup was stored. False if unchanged, and for a first backup."
+    )
 
 
 class CollectedData(BaseModel):

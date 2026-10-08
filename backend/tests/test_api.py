@@ -8,6 +8,7 @@ import pytest
 
 from app.db.models import ConfigBackup, Device, Scan
 from app.engine import collector, discovery, scanner
+from tests.sample_configs import BASE, NEW_SECRET, NEW_VLAN, SAME_LATER
 
 LAB = IPv4Network("192.168.17.0/24")
 NAT = IPv4Network("192.168.44.0/24")
@@ -78,6 +79,7 @@ def switch_ssh():
     conn = MagicMock()
     conn.host = "192.168.17.10"
     conn.send_command.side_effect = lambda command, use_textfsm: outputs[command]
+    conn.outputs = outputs  # tests change entries to change what the "switch" returns
     with patch.object(collector, "connect", return_value=conn) as connect:
         yield connect, conn
 
@@ -293,8 +295,11 @@ def test_collect_logs_in_with_env_credentials_and_stores_everything(client, swit
     assert body["interfaces"] == 1
     assert body["vlans"] == 2
     assert body["mac_table"] is None  # stored as raw text
-    assert body["config_changed"] is True
+    # A first backup is new, not "changed": there is nothing to compare with.
+    assert body["first_backup"] is True
+    assert body["config_changed"] is False
     assert body["config_backup"]["lines"] == 3
+    assert body["config_backup"]["changed"] is None
     connect.assert_called_once_with(
         host="192.168.17.10", username="test-user", password="test-password"
     )
@@ -332,7 +337,8 @@ def test_identical_config_is_backed_up_once_and_its_text_is_never_exposed(
     assert second.json()["config_changed"] is False
     configs = client.get(f"/devices/{switch_id}/configs")
     assert len(configs.json()) == 1
-    assert set(configs.json()[0]) == {"id", "collected_at", "last_seen_at", "sha256", "lines"}
+    assert "config" not in configs.json()[0]
+    assert second.json()["first_backup"] is False
     assert "enable secret" not in configs.text
     assert "enable secret" not in second.text
 
@@ -357,6 +363,126 @@ def test_config_backup_of_another_device_is_404(client, switch_id, switch_ssh):
 
     assert client.get(f"/devices/{other}/configs/{backup_id}").status_code == 404
     assert client.get(f"/devices/{switch_id}/configs/999").status_code == 404
+
+
+# --- config changes and diffs ----------------------------------------------
+
+
+def collect_config(client, switch_id, conn, config):
+    """Collect from the fake switch while its running config is the given text."""
+    conn.outputs["show running-config"] = config
+    response = client.post(f"/devices/{switch_id}/collect")
+    assert response.status_code == 200
+    return response.json()
+
+
+def test_collect_reports_no_change_when_only_timestamps_differ(client, switch_id, switch_ssh):
+    _, conn = switch_ssh
+    first = collect_config(client, switch_id, conn, BASE)
+    second = collect_config(client, switch_id, conn, SAME_LATER)
+
+    assert (first["first_backup"], first["config_changed"]) == (True, False)
+    assert (second["first_backup"], second["config_changed"]) == (False, False)
+    assert second["config_backup"]["id"] == first["config_backup"]["id"]
+    assert len(client.get(f"/devices/{switch_id}/configs").json()) == 1
+
+
+def test_collect_reports_a_real_config_change_with_its_size(client, switch_id, switch_ssh):
+    _, conn = switch_ssh
+    first = collect_config(client, switch_id, conn, BASE)
+    second = collect_config(client, switch_id, conn, NEW_VLAN)
+
+    assert second["config_changed"] is True
+    assert second["first_backup"] is False
+    assert second["config_backup"]["id"] != first["config_backup"]["id"]
+    assert second["config_backup"]["changed"] is True
+    assert second["config_backup"]["lines_added"] == 4
+    assert second["config_backup"]["lines_removed"] == 1
+
+
+def test_backup_list_marks_which_backups_changed(client, switch_id, switch_ssh):
+    _, conn = switch_ssh
+    for config in (BASE, SAME_LATER, NEW_VLAN, NEW_SECRET):
+        collect_config(client, switch_id, conn, config)
+
+    backups = client.get(f"/devices/{switch_id}/configs").json()
+
+    # Newest first. Three versions: the unchanged re-read was not stored.
+    assert [b["changed"] for b in backups] == [True, True, None]
+    assert [(b["lines_added"], b["lines_removed"]) for b in backups] == [(2, 5), (4, 1), (0, 0)]
+    detail = client.get(f"/devices/{switch_id}/configs/{backups[1]['id']}").json()
+    assert detail["changed"] is True
+    assert "vlan 20" in detail["config"]
+
+
+def test_diff_latest_compares_the_previous_backup_with_the_newest(client, switch_id, switch_ssh):
+    _, conn = switch_ssh
+    old = collect_config(client, switch_id, conn, BASE)["config_backup"]["id"]
+    new = collect_config(client, switch_id, conn, NEW_VLAN)["config_backup"]["id"]
+
+    response = client.get(f"/devices/{switch_id}/configs/diff/latest")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["device_id"] == switch_id
+    assert (body["from_backup"]["id"], body["to_backup"]["id"]) == (old, new)
+    assert body["changed"] is True
+    assert (body["lines_added"], body["lines_removed"]) == (4, 1)
+    lines = body["diff"].splitlines()
+    assert lines[0].startswith(f"--- backup #{old} (")
+    assert lines[1].startswith(f"+++ backup #{new} (")
+    assert "+vlan 20" in lines
+    assert "- switchport access vlan 10" in lines
+    assert "+ switchport access vlan 20" in lines
+    # Secrets never leave the server, changed or not.
+    assert "fakeHash" not in response.text
+    assert "fakeCommunity" not in response.text
+
+
+def test_diff_between_any_two_backups_in_either_direction(client, switch_id, switch_ssh):
+    _, conn = switch_ssh
+    ids = [
+        collect_config(client, switch_id, conn, config)["config_backup"]["id"]
+        for config in (BASE, NEW_VLAN, NEW_SECRET)
+    ]
+
+    def diff(from_id, to_id):
+        return client.get(
+            f"/devices/{switch_id}/configs/diff", params={"from_id": from_id, "to_id": to_id}
+        ).json()
+
+    # First to third skips the middle backup: only the secret differs.
+    skipping = diff(ids[0], ids[2])
+    assert (skipping["lines_added"], skipping["lines_removed"]) == (1, 1)
+    assert "+enable secret <redacted>" in skipping["diff"].splitlines()
+
+    backwards = diff(ids[1], ids[0])
+    assert (backwards["lines_added"], backwards["lines_removed"]) == (1, 4)
+
+    same = diff(ids[0], ids[0])
+    assert same["changed"] is False
+    assert same["diff"] == ""
+
+
+def test_diff_errors(client, switch_id, switch_ssh):
+    _, conn = switch_ssh
+    other = next(d["id"] for d in client.get("/devices").json() if d["id"] != switch_id)
+    base = f"/devices/{switch_id}/configs/diff"
+
+    # No backups, then one backup: nothing to compare yet.
+    assert client.get(f"{base}/latest").status_code == 404
+    only = collect_config(client, switch_id, conn, BASE)["config_backup"]["id"]
+    response = client.get(f"{base}/latest")
+    assert response.status_code == 404
+    assert "two are needed" in response.json()["detail"]
+
+    assert client.get(base, params={"from_id": only, "to_id": 999}).status_code == 404
+    assert client.get(base, params={"from_id": only}).status_code == 422
+    assert client.get(base, params={"from_id": "x", "to_id": only}).status_code == 422
+    # Another device's backups are not reachable through this device.
+    wrong = client.get(f"/devices/{other}/configs/diff", params={"from_id": only, "to_id": only})
+    assert wrong.status_code == 404
+    assert client.get("/devices/999/configs/diff/latest").status_code == 404
 
 
 def test_collect_refuses_devices_not_classified_as_network_devices(client, switch_ssh):

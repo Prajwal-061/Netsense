@@ -100,6 +100,21 @@ export interface ConfigBackup {
   last_seen_at: string
   sha256: string
   lines: number
+  /** Differs from the backup before it. Null for a device's first backup. */
+  changed: boolean | null
+  lines_added: number
+  lines_removed: number
+}
+
+export interface ConfigDiff {
+  device_id: number
+  from_backup: ConfigBackup
+  to_backup: ConfigBackup
+  changed: boolean
+  lines_added: number
+  lines_removed: number
+  /** Unified diff text, empty when nothing changed. */
+  diff: string
 }
 
 export interface ConfigBackupDetail extends ConfigBackup {
@@ -115,6 +130,8 @@ export interface CollectResult {
   vlans: number | null
   mac_table: number | null
   config_backup: ConfigBackup
+  first_backup: boolean
+  /** The config differs from the previous backup (false for a first backup). */
   config_changed: boolean
 }
 
@@ -174,3 +191,5 @@ export const getCollected = (id: number, kind: CollectedKind) =>
 export const getConfigs = (id: number) => request<ConfigBackup[]>(`/devices/${id}/configs`)
 export const getConfig = (id: number, backupId: number) =>
   request<ConfigBackupDetail>(`/devices/${id}/configs/${backupId}`)
+export const getConfigDiff = (id: number, fromId: number, toId: number) =>
+  request<ConfigDiff>(`/devices/${id}/configs/diff?from_id=${fromId}&to_id=${toId}`)

@@ -71,3 +71,37 @@ def test_foreign_keys_are_enforced_on_sqlite(session):
 
     with pytest.raises(IntegrityError):
         session.commit()
+
+
+def test_migration_rehashes_existing_config_backups(tmp_path):
+    import hashlib
+    import sqlite3
+
+    from app.engine.config_diff import config_hash
+    from tests.sample_configs import BASE, SAME_LATER
+
+    path = tmp_path / "old.db"
+    config = Config(BACKEND / "alembic.ini")
+    config.set_main_option("sqlalchemy.url", f"sqlite:///{path}")
+
+    # A database from before normalisation: the hash is of the raw text.
+    command.upgrade(config, "0001")
+    raw_hash = hashlib.sha256(BASE.encode()).hexdigest()
+    with sqlite3.connect(path) as db:
+        db.execute(
+            "insert into config_backups (host, collected_at, last_seen_at, sha256, config) "
+            "values ('192.168.17.10', '2026-10-07 20:35:30', '2026-10-07 20:35:30', ?, ?)",
+            (raw_hash, BASE),
+        )
+
+    command.upgrade(config, "head")
+
+    with sqlite3.connect(path) as db:
+        stored, text = db.execute("select sha256, config from config_backups").fetchone()
+    assert stored == config_hash(BASE) == config_hash(SAME_LATER)
+    assert stored != raw_hash
+    assert text == BASE  # the config itself is untouched
+
+    command.downgrade(config, "0001")
+    with sqlite3.connect(path) as db:
+        assert db.execute("select sha256 from config_backups").fetchone()[0] == raw_hash
