@@ -5,6 +5,13 @@ export const API_URL: string = (
   import.meta.env.VITE_API_URL ?? 'http://192.168.17.132:8000'
 ).replace(/\/+$/, '')
 
+/**
+ * The API contract this dashboard was written for. Must equal API_REVISION in
+ * backend/app/api/health.py. A backend reporting a lower number (or none) is
+ * running older code, usually because it was not restarted after an update.
+ */
+export const REQUIRED_API_REVISION = 2
+
 export class ApiError extends Error {
   /** HTTP status code, or null when the API could not be reached at all. */
   status: number | null
@@ -18,6 +25,8 @@ export class ApiError extends Error {
 
 export interface Health {
   status: string
+  /** Missing on backends from before revisions were introduced. */
+  api_revision?: number
   database: boolean
   raw_sockets: boolean
   scan_running: boolean
@@ -100,8 +109,11 @@ export interface ConfigBackup {
   last_seen_at: string
   sha256: string
   lines: number
-  /** Differs from the backup before it. Null for a device's first backup. */
-  changed: boolean | null
+  /**
+   * Differs from the backup before it. Null for a device's first backup.
+   * Undefined if the backend is too old to report it.
+   */
+  changed?: boolean | null
   lines_added: number
   lines_removed: number
 }

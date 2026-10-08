@@ -2,6 +2,7 @@
 // the real pages, hooks and API client run with no backend and no network.
 
 import { vi } from 'vitest'
+import { REQUIRED_API_REVISION } from '../api'
 import type {
   CollectResult,
   ConfigBackup,
@@ -78,7 +79,13 @@ export const SCAN_3: ScanDetail = {
   },
 }
 
-export const HEALTH: Health = { status: 'ok', database: true, raw_sockets: true, scan_running: false }
+export const HEALTH: Health = {
+  status: 'ok',
+  api_revision: REQUIRED_API_REVISION,
+  database: true,
+  raw_sockets: true,
+  scan_running: false,
+}
 
 export const BACKUP: ConfigBackup = {
   id: 1,

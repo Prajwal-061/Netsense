@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app.api.health import API_REVISION
 from app.db.models import ConfigBackup, Device, Scan
 from app.engine import collector, discovery, scanner
 from tests.sample_configs import BASE, NEW_SECRET, NEW_VLAN, SAME_LATER
@@ -94,6 +95,7 @@ def test_health(client):
     assert response.status_code == 200
     assert response.json() == {
         "status": "ok",
+        "api_revision": API_REVISION,
         "database": True,
         "raw_sockets": False,
         "scan_running": False,
@@ -462,6 +464,60 @@ def test_diff_between_any_two_backups_in_either_direction(client, switch_id, swi
     same = diff(ids[0], ids[0])
     assert same["changed"] is False
     assert same["diff"] == ""
+
+
+def test_compare_request_is_not_mistaken_for_a_backup_id(client, switch_id, switch_ssh):
+    # Regression: served by code without the /configs/diff route, this exact
+    # request was matched by /configs/{backup_id} and failed with "Input
+    # should be a valid integer". The route must exist and be matched first.
+    _, conn = switch_ssh
+    collect_config(client, switch_id, conn, BASE)
+    older = collect_config(client, switch_id, conn, NEW_VLAN)["config_backup"]["id"]
+    newer = collect_config(client, switch_id, conn, NEW_SECRET)["config_backup"]["id"]
+
+    response = client.get(f"/devices/{switch_id}/configs/diff?from_id={older}&to_id={newer}")
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert (body["from_backup"]["id"], body["to_backup"]["id"]) == (older, newer)
+    assert body["changed"] is True
+    assert client.get(f"/devices/{switch_id}/configs/diff/latest").json()["diff"] == body["diff"]
+
+
+def test_every_backup_says_whether_it_changed(client, switch_id, switch_ssh):
+    # Regression: the dashboard showed "no change" for a backup that had
+    # changed, because the response it got had no "changed" field at all.
+    _, conn = switch_ssh
+    collect_config(client, switch_id, conn, BASE)
+    collect_config(client, switch_id, conn, NEW_VLAN)
+
+    newest, first = client.get(f"/devices/{switch_id}/configs").json()
+
+    assert newest["lines"] > first["lines"]
+    assert newest["changed"] is True
+    assert (newest["lines_added"], newest["lines_removed"]) == (4, 1)
+    assert "changed" in first and first["changed"] is None
+
+
+def test_unchanged_collection_adds_no_backup_even_after_an_old_style_hash(
+    client, session, switch_id, switch_ssh
+):
+    # Regression: a backup whose stored hash was computed the old way (from
+    # the raw text) must still be recognised as the same configuration.
+    import hashlib
+
+    _, conn = switch_ssh
+    first = collect_config(client, switch_id, conn, BASE)
+    stored = session.get(ConfigBackup, first["config_backup"]["id"])
+    stored.sha256 = hashlib.sha256(BASE.encode()).hexdigest()
+    session.commit()
+
+    for config in (BASE, SAME_LATER, BASE):
+        again = collect_config(client, switch_id, conn, config)
+        assert again["config_changed"] is False
+        assert again["config_backup"]["id"] == first["config_backup"]["id"]
+
+    assert len(client.get(f"/devices/{switch_id}/configs").json()) == 1
 
 
 def test_diff_errors(client, switch_id, switch_ssh):

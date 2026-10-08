@@ -13,6 +13,10 @@ from pydantic import BaseModel, Field
 
 class Health(BaseModel):
     status: str
+    api_revision: int = Field(
+        description="Version of the API contract. The dashboard compares it with the "
+        "revision it was built for, to detect a backend that needs restarting."
+    )
     database: bool = Field(description="The database is reachable and migrated.")
     raw_sockets: bool = Field(
         description="This process may open raw sockets, which ARP scans need "

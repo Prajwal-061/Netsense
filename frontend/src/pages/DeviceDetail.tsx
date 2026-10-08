@@ -343,13 +343,11 @@ function ConfigsTab({ deviceId }: { deviceId: number }) {
                   {index === 0 && <span className="text-xs font-normal text-emerald-700">current</span>}
                 </span>
                 <span className="mt-1 flex flex-wrap items-center gap-2">
-                  {backup.changed === null ? (
-                    <Badge>first backup</Badge>
-                  ) : backup.changed ? (
-                    <Badge tone="amber">changed {changeSize(backup)}</Badge>
-                  ) : (
-                    <Badge>no change</Badge>
-                  )}
+                  {/* Only say what the API actually reported. A missing value
+                      (older backend) shows no badge, not a guessed "no change". */}
+                  {backup.changed === null && <Badge>first backup</Badge>}
+                  {backup.changed === true && <Badge tone="amber">changed {changeSize(backup)}</Badge>}
+                  {backup.changed === false && <Badge>no change</Badge>}
                   <span className="text-xs text-slate-500">#{backup.id}</span>
                 </span>
                 <span className="mt-1 block text-xs text-slate-500">

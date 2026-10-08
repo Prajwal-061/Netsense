@@ -117,8 +117,11 @@ Rebuilding the venv creates a new file without the capability, so run the `setca
 ```bash
 cd backend
 source .venv/bin/activate
-python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+alembic upgrade head       # after every update: applies new database migrations
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
+
+`--reload` restarts the server by itself whenever a source file changes, so it never keeps running old code during development. Leave it out for a permanent deployment.
 
 Start it as your normal user, not with sudo. `python -m uvicorn` matters: it runs uvicorn on `.venv/bin/python`, the file that holds the capability (see Troubleshooting). `--host 0.0.0.0` listens on every network interface; `--host 192.168.17.132` would serve the lab network only.
 
@@ -168,6 +171,13 @@ cd frontend && npm test                               # dashboard pages
 ```
 
 ### Troubleshooting
+
+**The dashboard says "The backend is running older code than this dashboard", or new features fail with errors such as "Input should be a valid integer".**
+The backend process was started before the code was updated and is still running the old version. A Python program loads its code once at start-up.
+
+- Stop the backend with Ctrl+C, run `alembic upgrade head`, and start it again as in step 3.
+- Start it with `--reload` during development, so this cannot happen.
+- Check which code is running: `curl http://192.168.17.132:8000/health` shows `api_revision`, which must match `REQUIRED_API_REVISION` in `frontend/src/api.ts`.
 
 **Scans fail with "ARP scanning needs root or the CAP_NET_RAW capability", or `/health` shows `"raw_sockets": false`.**
 The API is running on a Python file that does not hold the capability. A venv made with `--copies` contains three separate files, `python`, `python3` and `python3.12`, and `setcap` in step 2 marks only `python`. The `uvicorn` command is a script whose first line names `python3`, so `uvicorn app.main:app ...` and `.venv/bin/uvicorn ...` can run on a copy without the capability. Fixes:

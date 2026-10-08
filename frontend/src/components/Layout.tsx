@@ -1,4 +1,5 @@
 import { Link, NavLink, Outlet } from 'react-router-dom'
+import { REQUIRED_API_REVISION } from '../api'
 import { useHealth, useRefreshWhenScanFinishes, useScans } from '../queries'
 import { ErrorBox, Spinner } from './ui'
 
@@ -13,6 +14,8 @@ export default function Layout() {
   const health = useHealth()
   const { data: scans } = useScans()
   const running = scans?.find((scan) => scan.status === 'running')
+  const backendRevision = health.data ? (health.data.api_revision ?? 0) : undefined
+  const backendOutdated = backendRevision !== undefined && backendRevision < REQUIRED_API_REVISION
 
   return (
     <div className="min-h-screen">
@@ -61,6 +64,17 @@ export default function Layout() {
         {health.isError && (
           <div className="mb-5">
             <ErrorBox error={health.error} onRetry={() => void health.refetch()} />
+          </div>
+        )}
+        {backendOutdated && (
+          <div className="mb-5 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900" role="alert">
+            <p className="font-semibold">The backend is running older code than this dashboard</p>
+            <p className="mt-1">
+              Parts of this page will fail or show wrong information until the backend is
+              restarted. Stop it with Ctrl+C and start it again, then reload this page. (The
+              dashboard needs API revision {REQUIRED_API_REVISION}; the backend reports{' '}
+              {backendRevision || 'none'}.)
+            </p>
           </div>
         )}
         <Outlet />

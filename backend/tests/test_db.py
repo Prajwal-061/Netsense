@@ -105,3 +105,52 @@ def test_migration_rehashes_existing_config_backups(tmp_path):
     command.downgrade(config, "0001")
     with sqlite3.connect(path) as db:
         assert db.execute("select sha256 from config_backups").fetchone()[0] == raw_hash
+
+
+def test_migration_merges_duplicate_backups_and_fixes_old_style_hashes(tmp_path):
+    import hashlib
+    import sqlite3
+
+    from app.engine.config_diff import config_hash
+    from tests.sample_configs import BASE, NEW_VLAN, SAME_LATER
+
+    path = tmp_path / "mixed.db"
+    config = Config(BACKEND / "alembic.ini")
+    config.set_main_option("sqlalchemy.url", f"sqlite:///{path}")
+    command.upgrade(config, "0002")
+
+    def raw(text):
+        return hashlib.sha256(text.encode()).hexdigest()
+
+    # What a backend running pre-0002 code left behind: #3 and #4 repeat the
+    # configuration of #2 and carry raw-text hashes. #5 is a real change
+    # back to the first config, and #6 belongs to another host.
+    rows = [
+        (1, "192.168.17.10", "2026-10-07 20:35:30", config_hash(BASE), BASE),
+        (2, "192.168.17.10", "2026-10-08 06:02:28", config_hash(NEW_VLAN), NEW_VLAN),
+        (3, "192.168.17.10", "2026-10-08 06:08:15", raw(NEW_VLAN), NEW_VLAN),
+        (4, "192.168.17.10", "2026-10-08 07:00:00", raw(NEW_VLAN), NEW_VLAN.replace("3340 bytes", "9 bytes")),
+        (5, "192.168.17.10", "2026-10-08 08:00:00", raw(SAME_LATER), SAME_LATER),
+        (6, "192.168.17.11", "2026-10-08 08:30:00", raw(SAME_LATER), SAME_LATER),
+    ]
+    with sqlite3.connect(path) as db:
+        db.executemany(
+            "insert into config_backups (id, host, collected_at, last_seen_at, sha256, config) "
+            "values (?, ?, ?, ?, ?, ?)",
+            [(i, host, seen, seen, sha, text) for i, host, seen, sha, text in rows],
+        )
+
+    command.upgrade(config, "head")
+
+    with sqlite3.connect(path) as db:
+        after = db.execute(
+            "select id, host, last_seen_at, sha256, config from config_backups order by id"
+        ).fetchall()
+    assert [row[0] for row in after] == [1, 2, 5, 6]
+    # #2 now covers the time its duplicates were seen.
+    assert after[1][2].startswith("2026-10-08 07:00:00")
+    # Every hash is the normalised one, and consecutive backups of a host differ.
+    assert all(sha == config_hash(text) for *_, sha, text in after)
+    assert after[0][3] != after[1][3] != after[2][3]
+    # The other host's backup has the same config as #5 and is kept.
+    assert after[3][1] == "192.168.17.11"

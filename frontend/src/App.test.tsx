@@ -227,6 +227,64 @@ test('config tab marks changed backups and shows a coloured diff of two backups'
   expect(screen.queryByText('+vlan 20')).not.toBeInTheDocument()
 })
 
+test('the compare request carries the two chosen backup ids as numbers', async () => {
+  // Regression for "Input should be a valid integer": the dashboard must ask
+  // for /configs/diff?from_id=<id>&to_id=<id>, older backup first.
+  const BACKUP_3 = { ...BACKUP_2, id: 3, collected_at: '2026-10-08T10:00:00Z' }
+  const api = installFakeApi({
+    'GET /devices/2/configs': [BACKUP_3, BACKUP_2, BACKUP],
+    'GET /devices/2/configs/3': { ...BACKUP_3, config: 'end' },
+    'GET /devices/2/configs/diff?from_id=2&to_id=3': { ...DIFF_1_TO_2, from_backup: BACKUP_2, to_backup: BACKUP_3 },
+    'GET /devices/2/configs/diff?from_id=1&to_id=3': DIFF_1_TO_2,
+  })
+  const user = open('/devices/2')
+  await user.click(await screen.findByRole('tab', { name: 'Config backups' }))
+  await user.click(await screen.findByRole('button', { name: 'Compare backups' }))
+
+  // Default: the previous backup (#2) against the newest (#3).
+  expect(await screen.findByText('+vlan 20')).toBeInTheDocument()
+  await user.selectOptions(screen.getByLabelText('From (older)'), '1')
+  await waitFor(() => expect(api.calls).toContain('GET /devices/2/configs/diff?from_id=1&to_id=3'))
+
+  const diffCalls = api.calls.filter((call) => call.includes('/configs/diff'))
+  expect(diffCalls).toEqual([
+    'GET /devices/2/configs/diff?from_id=2&to_id=3',
+    'GET /devices/2/configs/diff?from_id=1&to_id=3',
+  ])
+})
+
+test('a backend older than the dashboard is reported, and nothing is guessed', async () => {
+  // Regression: against a backend that had not been restarted, the health
+  // answer has no api_revision and backups have no "changed" field. The
+  // dashboard showed "no change" for a backup that had changed.
+  const { api_revision: _removed, ...oldHealth } = HEALTH
+  const oldBackup = ({ changed: _c, lines_added: _a, lines_removed: _r, ...rest }: typeof BACKUP_2) => rest
+  installFakeApi({
+    'GET /health': oldHealth,
+    'GET /devices/2/configs': [oldBackup(BACKUP_2), oldBackup(BACKUP)],
+    'GET /devices/2/configs/2': { ...oldBackup(BACKUP_2), config: 'end' },
+  })
+  const user = open('/devices/2')
+
+  const banner = await screen.findByText('The backend is running older code than this dashboard')
+  expect(banner.parentElement).toHaveTextContent(/restarted/)
+
+  await user.click(await screen.findByRole('tab', { name: 'Config backups' }))
+  const list = within(await screen.findByRole('list', { name: 'Config backups' }))
+  expect(list.getAllByRole('button')).toHaveLength(2)
+  expect(list.queryByText('no change')).not.toBeInTheDocument()
+  expect(list.queryByText('first backup')).not.toBeInTheDocument()
+  expect(screen.queryByText('Config changed since last backup')).not.toBeInTheDocument()
+})
+
+test('an up-to-date backend shows no version warning', async () => {
+  installFakeApi()
+  open('/')
+
+  expect(await screen.findByText('API connected')).toBeInTheDocument()
+  expect(screen.queryByText(/older code than this dashboard/)).not.toBeInTheDocument()
+})
+
 test('collecting a changed config says so', async () => {
   installFakeApi({
     'POST /devices/2/collect': { ...COLLECT_RESULT, first_backup: false, config_changed: true, config_backup: BACKUP_2 },

@@ -49,7 +49,7 @@ docs/
 ```bash
 # Backend (from backend/, as the normal user, never root)
 source .venv/bin/activate
-python -m uvicorn app.main:app --host 0.0.0.0 --port 8000   # API; docs at http://192.168.17.132:8000/docs
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload   # API; docs at http://192.168.17.132:8000/docs
 pytest                                                       # tests (no lab needed)
 alembic upgrade head                                         # create/upgrade the database (never with sudo)
 alembic revision --autogenerate -m "what changed"            # new migration after editing models.py
@@ -85,6 +85,12 @@ Every change to `app/db/models.py` needs a migration; `tests/test_db.py` fails i
 - The lab switch runs in VTP server mode, so VLAN definitions are in `vlan.dat`, not in the running config: creating a VLAN does not show in a config diff, only the interface lines that use it.
 - `POST /devices/{id}/collect` sends the `.env` credentials to any device classified "network device" inside `ALLOWED_SUBNETS`. The classification comes from a banner the device controls, so restrict this to an explicit list of authorized hosts before leaving the lab.
 - Tests set fake credentials and an in-memory `DATABASE_URL` in `tests/conftest.py` before importing the app, so they never read `.env` or `netsense.db`.
+
+## After changing backend code
+
+- A running backend keeps the code it started with. After any backend change, the user's API must be restarted (or be running with `--reload`) before the feature is tested, and `alembic upgrade head` must have been run. Check the running process, not just the tests: `curl -s http://127.0.0.1:8000/health` shows `api_revision`, and `/openapi.json` lists the routes it really serves. On 2026-10-08 a backend started before the config-diff feature produced three "bugs" at once: 422 "valid integer" on `/configs/diff`, wrong "no change" badges, and duplicate backups with old-style hashes.
+- `API_REVISION` in `backend/app/api/health.py` and `REQUIRED_API_REVISION` in `frontend/src/api.ts` must be equal. Add 1 to both whenever an endpoint or response field the dashboard uses is added or changed. The dashboard shows a warning banner when the backend reports a lower number.
+- Never apply a migration that changes how stored data is interpreted while an old backend is still running against the same database: the old code then writes inconsistent rows (migration `0003` repairs the config backups this produced).
 
 ## Frontend
 
