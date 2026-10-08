@@ -155,8 +155,8 @@ def test_two_scans_report_new_missing_and_ip_changed_devices(session):
         {
             "mac": "52:54:00:12:34:56",
             "ip": "192.168.17.129",
-            "vendor": "QEMU/KVM virtual machine",
-            "type": "VMware/virtual",
+            "vendor": "QEMU/KVM",
+            "type": "unknown",
         }
     ]
     assert report.missing_devices == [
@@ -253,3 +253,49 @@ def test_scans_left_running_by_a_crash_are_failed_at_startup(session):
     assert statuses == [Scan.STATUS_COMPLETED, Scan.STATUS_FAILED]
     assert scan_service.fail_interrupted_scans(session) == 0
     assert finished.error is None
+
+
+# --- virtualisation and confirmed types ------------------------------------
+
+
+def test_scan_saves_virtualization_separately_from_the_type(session):
+    iosv_router = ("192.168.17.3", "52:54:00:12:33:67", [SSH])
+    alpine = ("192.168.17.129", "52:54:00:68:dd:64", [])
+    run(session, SWITCH, iosv_router, alpine)
+
+    by_ip = {device.last_ip: device for device in session.scalars(select(Device))}
+
+    router = by_ip["192.168.17.3"]
+    assert (router.device_type, router.virtualization) == ("network device", "QEMU/KVM")
+    assert router.type_source == Device.TYPE_FROM_SCAN
+    assert "Cisco SSH 1.25" in router.type_reason
+    assert (by_ip["192.168.17.129"].device_type, by_ip["192.168.17.129"].virtualization) == (
+        "unknown",
+        "QEMU/KVM",
+    )
+    assert (by_ip["192.168.17.10"].device_type, by_ip["192.168.17.10"].virtualization) == (
+        "network device",
+        None,
+    )
+
+
+def test_a_type_confirmed_by_login_survives_later_scans(session):
+    from app.services import collection_service
+
+    run(session, SWITCH)
+    device = session.scalars(select(Device)).one()
+    version = [{"software_image": "X86_64BI_LINUX_L2-ADVENTERPRISEK9-M", "hardware": []}]
+    collection_service.confirm_device_type(session, device, version, vlans=[{"vlan_id": "1"}])
+    assert (device.device_type, device.type_source) == ("switch", Device.TYPE_FROM_COLLECTION)
+
+    # Later scans: one sees the SSH banner, one sees no open ports at all.
+    second, _ = run(session, SWITCH)
+    third, _ = run(session, ("192.168.17.10", "aa:bb:cc:00:01:00", []))
+
+    session.refresh(device)
+    assert device.device_type == "switch"
+    assert device.type_reason.startswith("confirmed by login")
+    assert device.type_source == Device.TYPE_FROM_COLLECTION
+    # Each scan still records what it could tell by itself.
+    assert second.results[0].device_type == "network device"
+    assert third.results[0].device_type == "unknown"

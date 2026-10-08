@@ -12,6 +12,7 @@ import {
   Td,
   Th,
   TypeBadge,
+  VirtualBadge,
 } from '../components/ui'
 import { formatDateTime, ipSortKey, timeAgo } from '../format'
 import { isPresent, useDevices, useLatestCompletedScan } from '../queries'
@@ -50,7 +51,7 @@ export default function Devices() {
               type="search"
               value={search}
               onChange={(event) => setParam('q', event.target.value)}
-              placeholder="Search IP, MAC, vendor or service"
+              placeholder="Search IP, MAC, vendor, service or platform"
               className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
             />
           </label>
@@ -112,7 +113,10 @@ export default function Devices() {
                     <PresenceBadge present={isPresent(device, latestScan?.id)} />
                   </Td>
                   <Td>
-                    <TypeBadge type={device.device_type} />
+                    <span className="flex flex-wrap items-center gap-1.5">
+                      <TypeBadge type={device.device_type} />
+                      <VirtualBadge platform={device.virtualization} />
+                    </span>
                   </Td>
                   <Td>
                     <PortChips ports={device.latest_result?.open_ports ?? []} />
@@ -142,6 +146,7 @@ function matches(device: Device, search: string): boolean {
     device.mac,
     device.vendor,
     device.device_type,
+    device.virtualization ?? '',
     ...ports.flatMap((port) => [String(port.port), port.service, port.product]),
   ].some((text) => text.toLowerCase().includes(needle))
 }

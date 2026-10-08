@@ -16,6 +16,7 @@ import {
   Td,
   Th,
   TypeBadge,
+  VirtualBadge,
 } from '../components/ui'
 import { formatDateTime, timeAgo } from '../format'
 import {
@@ -29,7 +30,8 @@ import {
   useLatestCompletedScan,
 } from '../queries'
 
-const NETWORK_DEVICE = 'network device'
+// Types the API allows collecting from: a scan's guess, or confirmed by a login.
+const NETWORK_TYPES = ['network device', 'router', 'switch']
 
 export default function DeviceDetail() {
   const id = Number(useParams().id)
@@ -64,6 +66,7 @@ function DeviceView({ id }: { id: number }) {
           <span className="flex flex-wrap items-center gap-3">
             <span className="font-mono">{data.last_ip}</span>
             <TypeBadge type={data.device_type} />
+            <VirtualBadge platform={data.virtualization} />
             <PresenceBadge present={isPresent(data, latestScan?.id)} />
           </span>
         }
@@ -77,6 +80,19 @@ function DeviceView({ id }: { id: number }) {
               <Row label="IP address" value={<span className="font-mono">{data.last_ip}</span>} />
               <Row label="MAC address" value={<span className="font-mono">{data.mac}</span>} />
               <Row label="Vendor" value={data.vendor} />
+              <Row
+                label="Virtualization"
+                value={
+                  data.virtualization ? (
+                    <>
+                      <VirtualBadge platform={data.virtualization} />{' '}
+                      <span className="text-slate-500">from the MAC prefix</span>
+                    </>
+                  ) : (
+                    <span className="text-slate-500">None detected from the MAC address</span>
+                  )
+                }
+              />
               <Row label="First seen" value={formatDateTime(data.first_seen)} />
               <Row
                 label="Last seen"
@@ -102,16 +118,22 @@ function DeviceView({ id }: { id: number }) {
 
           <Card title="Classification">
             <div className="space-y-3 p-4 text-sm">
-              <p>
+              <p className="flex flex-wrap items-center gap-2">
                 <TypeBadge type={data.device_type} />
+                {data.type_source === 'collected' ? (
+                  <Badge tone="green">confirmed by login</Badge>
+                ) : (
+                  <Badge>guess from scan</Badge>
+                )}
               </p>
               <div>
                 <p className="text-xs font-medium tracking-wide text-slate-500 uppercase">Reason</p>
-                <p className="mt-1 text-slate-800">{result?.reason ?? 'No scan result yet.'}</p>
+                <p className="mt-1 text-slate-800">{data.type_reason || 'No scan result yet.'}</p>
               </div>
               <p className="text-xs text-slate-500">
-                The type is a rule-based guess from service banners, open ports and the MAC
-                vendor. It is not a certainty.
+                {data.type_source === 'collected'
+                  ? "The device reported this itself over an SSH login, so scans no longer change it."
+                  : 'A rule-based guess from service banners and open ports. Whether the device is virtual is shown separately and does not decide the type.'}
               </p>
             </div>
           </Card>
@@ -150,7 +172,7 @@ function DeviceView({ id }: { id: number }) {
           )}
         </Card>
 
-        {data.device_type === NETWORK_DEVICE && <Collected device={data} />}
+        {NETWORK_TYPES.includes(data.device_type) && <Collected device={data} />}
       </div>
     </>
   )
@@ -198,6 +220,7 @@ function Collected({ device }: { device: Device }) {
             Collected {describeCount(collect.data.interfaces, 'interface')},{' '}
             {describeCount(collect.data.vlans, 'VLAN')} and{' '}
             {describeCount(collect.data.mac_table, 'MAC table entry', 'MAC table entries')}.{' '}
+            Confirmed as a {collect.data.device_type}.{' '}
             {collect.data.first_backup
               ? "This is the device's first config backup."
               : collect.data.config_changed

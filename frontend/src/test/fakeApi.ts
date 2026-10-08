@@ -25,7 +25,20 @@ const SSH: Port = {
 }
 const HTTP: Port = { ...SSH, port: 80, service: 'http', product: 'nginx', version: '1.24.0', os_type: '' }
 
-function device(id: number, ip: string, mac: string, vendor: string, type: string, ports: Port[], scanId = 3): Device {
+function device(
+  id: number,
+  ip: string,
+  mac: string,
+  vendor: string,
+  type: string,
+  ports: Port[],
+  virtualization: string | null = null,
+  scanId = 3,
+): Device {
+  const reason =
+    type === 'network device'
+      ? "ssh banner on port 22 is 'Cisco SSH 1.25', OS IOS"
+      : `no open ports found, and MAC vendor '${vendor}' does not indicate a device type`
   return {
     id,
     mac,
@@ -33,7 +46,10 @@ function device(id: number, ip: string, mac: string, vendor: string, type: strin
     last_seen: '2026-10-07T06:23:06Z',
     last_ip: ip,
     vendor,
+    virtualization,
     device_type: type,
+    type_source: 'scan',
+    type_reason: reason,
     latest_result: {
       scan_id: scanId,
       device_id: id,
@@ -42,17 +58,19 @@ function device(id: number, ip: string, mac: string, vendor: string, type: strin
       vendor,
       open_ports: ports,
       device_type: type,
-      reason: type === 'network device' ? "ssh banner on port 22 is 'Cisco SSH 1.25', OS IOS" : 'MAC prefix is VMware, Inc.',
+      reason,
       seen_at: '2026-10-07T06:23:06Z',
     },
   }
 }
 
 export const SWITCH = device(2, '192.168.17.10', 'aa:bb:cc:80:01:00', 'Locally administered', 'network device', [SSH])
-export const HOST_PC = device(1, '192.168.17.1', '00:50:56:c0:00:01', 'VMware, Inc.', 'VMware/virtual', [])
-export const WEB = device(3, '192.168.17.128', '00:0c:29:d6:6b:33', 'VMware, Inc.', 'server', [HTTP])
+export const HOST_PC = device(1, '192.168.17.1', '00:50:56:c0:00:01', 'VMware, Inc.', 'unknown', [], 'VMware')
+export const WEB = device(3, '192.168.17.128', '00:0c:29:d6:6b:33', 'VMware, Inc.', 'server', [HTTP], 'VMware')
 // Last seen in scan 2, so it is "not seen" in the latest scan (3).
-export const GONE = device(4, '192.168.17.9', 'b8:27:eb:11:22:33', 'Raspberry Pi Foundation', 'unknown', [], 2)
+export const GONE = device(4, '192.168.17.9', 'b8:27:eb:11:22:33', 'Raspberry Pi Foundation', 'unknown', [], null, 2)
+// An IOSv router: a QEMU/KVM MAC address, recognised by its Cisco SSH banner.
+export const ROUTER = device(5, '192.168.17.3', '52:54:00:12:33:67', 'QEMU/KVM', 'network device', [SSH], 'QEMU/KVM')
 export const DEVICES = [HOST_PC, SWITCH, WEB, GONE]
 
 export function scan(id: number, status: ScanSummary['status'], extra: Partial<ScanSummary> = {}): ScanSummary {
@@ -137,6 +155,8 @@ export const DIFF_1_TO_2: ConfigDiff = {
 export const COLLECT_RESULT: CollectResult = {
   device_id: 2,
   host: '192.168.17.10',
+  device_type: 'switch',
+  type_reason: "confirmed by login: show version reports software image 'X86_64BI_LINUX_L2-ADVENTERPRISEK9-M', a switch image",
   collection_id: 1,
   collected_at: '2026-10-07T19:23:35Z',
   interfaces: 2,

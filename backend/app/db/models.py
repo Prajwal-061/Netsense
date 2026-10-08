@@ -76,7 +76,17 @@ class Device(Base):
     last_seen: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     last_ip: Mapped[str] = mapped_column(String(15), index=True)
     vendor: Mapped[str] = mapped_column(String(255), default="")
+    # How the device is hosted (e.g. "QEMU/KVM"), from its MAC prefix. Null
+    # when the MAC shows no sign of virtualisation. Independent of the type.
+    virtualization: Mapped[str | None] = mapped_column(String(32))
     device_type: Mapped[str] = mapped_column(String(32), default="unknown")
+    # Where device_type came from. A type confirmed by logging in to the
+    # device ("collected") is kept when later scans guess something else.
+    type_source: Mapped[str] = mapped_column(String(16), default="scan")
+    type_reason: Mapped[str] = mapped_column(Text, default="")
+
+    TYPE_FROM_SCAN = "scan"
+    TYPE_FROM_COLLECTION = "collected"
 
     results: Mapped[list["ScanResult"]] = relationship(back_populates="device")
 
@@ -118,6 +128,8 @@ class DeviceCollection(Base):
     interfaces: Mapped[Any] = mapped_column(JSON)
     vlans: Mapped[Any] = mapped_column(JSON)
     mac_table: Mapped[Any] = mapped_column(JSON)
+    # "show version" output. Null for collections made before it was stored.
+    version: Mapped[Any | None] = mapped_column(JSON)
 
     device: Mapped[Device | None] = relationship()
 

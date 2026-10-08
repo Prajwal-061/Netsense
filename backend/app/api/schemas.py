@@ -106,7 +106,16 @@ class Device(BaseModel):
     last_seen: datetime
     last_ip: str
     vendor: str
+    virtualization: str | None = Field(
+        description="Virtualisation platform read from the MAC prefix (e.g. QEMU/KVM), "
+        "or null. Says how the device is hosted, not what it is."
+    )
     device_type: str
+    type_source: str = Field(
+        description="'collected' if the type was confirmed by logging in to the device, "
+        "'scan' if it is a guess from scan results."
+    )
+    type_reason: str
     latest_result: ScanResult | None
 
 
@@ -151,6 +160,8 @@ class ConfigDiff(BaseModel):
 class CollectResult(BaseModel):
     device_id: int
     host: str
+    device_type: str = Field(description="router or switch, as confirmed by this login.")
+    type_reason: str
     collection_id: int
     collected_at: datetime
     interfaces: int | None = Field(description="Entries parsed, or null if stored as raw text.")

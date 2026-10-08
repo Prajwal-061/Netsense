@@ -171,11 +171,11 @@ def test_local_networks_parses_ip_output_and_skips_loopback():
         ("aa:bb:cc:00:01:00", "Locally administered"),
         # Virtualization prefixes win over both the OUI list and the
         # locally administered check.
-        ("52:54:00:12:34:56", "QEMU/KVM virtual machine"),
-        ("52:54:00:AB:CD:EF", "QEMU/KVM virtual machine"),
-        ("08:00:27:aa:bb:cc", "VirtualBox virtual machine"),
-        ("00:15:5d:01:02:03", "Hyper-V virtual machine"),
-        ("02:42:ac:11:00:02", "Docker container"),
+        ("52:54:00:12:34:56", "QEMU/KVM"),
+        ("52:54:00:AB:CD:EF", "QEMU/KVM"),
+        ("08:00:27:aa:bb:cc", "VirtualBox"),
+        ("00:15:5d:01:02:03", "Hyper-V"),
+        ("02:42:ac:11:00:02", "Docker"),
         ("52:54:01:12:34:56", "Locally administered"),
         ("00:00:00:00:00:01", None),
     ],
@@ -186,3 +186,23 @@ def test_lookup_vendor(mac, vendor):
     if vendor is not None:
         assert result == vendor
     assert result != mac
+
+
+@pytest.mark.parametrize(
+    "mac, platform",
+    [
+        ("52:54:00:12:33:67", "QEMU/KVM"),
+        ("52:54:00:AB:CD:EF", "QEMU/KVM"),
+        ("00:0c:29:23:56:f6", "VMware"),
+        ("00:50:56:c0:00:01", "VMware"),
+        ("08:00:27:aa:bb:cc", "VirtualBox"),
+        ("00:15:5d:01:02:03", "Hyper-V"),
+        ("02:42:ac:11:00:02", "Docker"),
+        ("00:16:3e:01:02:03", "Xen"),
+        ("aa:bb:cc:00:01:00", None),  # locally administered, but no known platform
+        ("52:54:01:12:34:56", None),
+        ("b8:27:eb:11:22:33", None),
+    ],
+)
+def test_lookup_virtualization(mac, platform):
+    assert discovery.lookup_virtualization(mac) == platform

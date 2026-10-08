@@ -154,3 +154,97 @@ def test_migration_merges_duplicate_backups_and_fixes_old_style_hashes(tmp_path)
     assert after[0][3] != after[1][3] != after[2][3]
     # The other host's backup has the same config as #5 and is kept.
     assert after[3][1] == "192.168.17.11"
+
+
+def test_migration_0004_moves_virtualization_out_of_the_device_type(tmp_path):
+    import sqlite3
+
+    path = tmp_path / "types.db"
+    config = Config(BACKEND / "alembic.ini")
+    config.set_main_option("sqlalchemy.url", f"sqlite:///{path}")
+    command.upgrade(config, "0003")
+
+    seen = "2026-10-08 06:28:20"
+    devices = [
+        (1, "52:54:00:12:33:67", "192.168.17.3", "QEMU/KVM virtual machine", "VMware/virtual"),
+        (2, "aa:bb:cc:80:01:00", "192.168.17.10", "Locally administered", "network device"),
+        (3, "52:54:00:68:dd:64", "192.168.17.129", "QEMU/KVM virtual machine", "Linux/Unix host"),
+        (4, "00:50:56:c0:00:01", "192.168.17.1", "VMware, Inc.", "VMware/virtual"),
+    ]
+    with sqlite3.connect(path) as db:
+        db.execute("insert into scans (id, started_at, subnet, status) values (1, ?, '192.168.17.0/24', 'completed')", (seen,))
+        db.executemany(
+            "insert into devices (id, mac, first_seen, last_seen, last_ip, vendor, device_type) "
+            "values (?, ?, ?, ?, ?, ?, ?)",
+            [(i, mac, seen, seen, ip, vendor, kind) for i, mac, ip, vendor, kind in devices],
+        )
+        db.execute(
+            "insert into scan_results (scan_id, device_id, ip, open_ports, device_type, reason) "
+            "values (1, 2, '192.168.17.10', '[]', 'network device', 'ssh banner says Cisco')"
+        )
+
+    command.upgrade(config, "head")
+
+    with sqlite3.connect(path) as db:
+        rows = db.execute(
+            "select id, vendor, virtualization, device_type, type_source, type_reason "
+            "from devices order by id"
+        ).fetchall()
+        history = db.execute("select device_type from scan_results").fetchone()[0]
+    assert [row[1:5] for row in rows] == [
+        ("QEMU/KVM", "QEMU/KVM", "unknown", "scan"),
+        ("Locally administered", None, "network device", "scan"),
+        ("QEMU/KVM", "QEMU/KVM", "Linux/Unix host", "scan"),
+        ("VMware, Inc.", "VMware", "unknown", "scan"),
+    ]
+    assert rows[1][5] == "ssh banner says Cisco"  # taken from the device's latest scan result
+    assert "scan again" in rows[0][5]
+    assert history == "network device"  # past scan results are not rewritten
+    command.check(config)
+
+
+def test_migration_status_reports_a_database_that_is_behind_the_code(tmp_path):
+    from app.db.database import migration_status
+
+    url = f"sqlite:///{tmp_path / 'behind.db'}"
+    config = Config(BACKEND / "alembic.ini")
+    config.set_main_option("sqlalchemy.url", url)
+    engine = create_db_engine(url)
+
+    command.upgrade(config, "0003")
+    current, newest = migration_status(engine)
+    assert current == "0003"
+    assert newest != "0003"
+
+    command.upgrade(config, "head")
+    current, newest = migration_status(engine)
+    assert current == newest
+    engine.dispose()
+
+
+def test_api_refuses_to_start_on_a_database_that_is_behind_the_code(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from app.api import deps
+    from app.main import app
+
+    url = f"sqlite:///{tmp_path / 'behind.db'}"
+    config = Config(BACKEND / "alembic.ini")
+    config.set_main_option("sqlalchemy.url", url)
+    command.upgrade(config, "0003")
+    engine = create_db_engine(url)
+
+    # Entering the client runs the app's start-up code, as a real server does.
+    from unittest.mock import patch
+
+    with patch.object(deps.get_engine, "__wrapped__", lambda: engine), patch(
+        "app.main.get_engine", lambda: engine
+    ):
+        with pytest.raises(RuntimeError, match="alembic upgrade head"):
+            with TestClient(app):
+                pass
+
+        command.upgrade(config, "head")
+        with TestClient(app) as client:
+            assert client.get("/openapi.json").status_code == 200
+    engine.dispose()

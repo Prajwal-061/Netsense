@@ -10,7 +10,7 @@ export const API_URL: string = (
  * backend/app/api/health.py. A backend reporting a lower number (or none) is
  * running older code, usually because it was not restarted after an update.
  */
-export const REQUIRED_API_REVISION = 2
+export const REQUIRED_API_REVISION = 3
 
 export class ApiError extends Error {
   /** HTTP status code, or null when the API could not be reached at all. */
@@ -99,7 +99,12 @@ export interface Device {
   last_seen: string
   last_ip: string
   vendor: string
+  /** Virtualisation platform from the MAC prefix, e.g. "QEMU/KVM". Not a device type. */
+  virtualization: string | null
   device_type: string
+  /** "collected": confirmed by logging in to the device. "scan": a guess from scan results. */
+  type_source: 'scan' | 'collected'
+  type_reason: string
   latest_result: ScanResult | null
 }
 
@@ -136,6 +141,9 @@ export interface ConfigBackupDetail extends ConfigBackup {
 export interface CollectResult {
   device_id: number
   host: string
+  /** router or switch, as confirmed by this login. */
+  device_type: string
+  type_reason: string
   collection_id: number
   collected_at: string
   interfaces: number | null

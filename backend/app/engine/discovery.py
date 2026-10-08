@@ -17,16 +17,21 @@ from app.core.config import get_settings
 
 BROADCAST_MAC = "ff:ff:ff:ff:ff:ff"
 
-# MAC prefixes that hypervisors give their virtual network cards. Checked
-# before the OUI list because some are not registered OUIs at all (52:54:00
-# and 02:42 are locally administered conventions), and others are registered
-# under a company name that hides the product (08:00:27 is "PCS Systemtechnik").
+# MAC prefixes that virtualisation platforms give their virtual network
+# cards, mapped to the platform. Needed because some are not registered OUIs
+# at all (52:54:00 and 02:42 are locally administered conventions), and
+# others are registered under a company name that hides the product
+# (08:00:27 is "PCS Systemtechnik").
 VIRTUAL_MAC_PREFIXES = {
-    "52:54:00": "QEMU/KVM virtual machine",
-    "08:00:27": "VirtualBox virtual machine",
-    "00:15:5d": "Hyper-V virtual machine",
-    "02:42": "Docker container",
+    "52:54:00": "QEMU/KVM",
+    "08:00:27": "VirtualBox",
+    "00:15:5d": "Hyper-V",
+    "02:42": "Docker",
 }
+
+# Platforms whose virtual network cards use an OUI registered in their own
+# name: (text in the registered vendor name, platform).
+_VIRTUAL_VENDORS = (("vmware", "VMware"), ("xensource", "Xen"), ("parallels", "Parallels"))
 
 
 class DiscoveryError(Exception):
@@ -125,25 +130,51 @@ def resolve_target(
     )
 
 
+def _virtual_prefix(mac: str) -> str | None:
+    mac = mac.lower()
+    for prefix, platform in VIRTUAL_MAC_PREFIXES.items():
+        if mac.startswith(prefix + ":"):
+            return platform
+    return None
+
+
 def lookup_vendor(mac: str) -> str:
-    """Return the manufacturer that owns a MAC address's OUI, looked up offline.
+    """Return who made the network card with this MAC address, looked up offline.
 
     The first 3 bytes of a MAC are the OUI, a prefix the IEEE assigns to one
     manufacturer. Scapy bundles a copy of Wireshark's OUI list, so no internet
-    is needed.
+    is needed. For a virtual network card the "maker" is the virtualisation
+    platform.
     """
-    mac = mac.lower()
-    for prefix, name in VIRTUAL_MAC_PREFIXES.items():
-        if mac.startswith(prefix + ":"):
-            return name
+    platform = _virtual_prefix(mac)
+    if platform:
+        return platform
     # Bit 1 of the first byte set = "locally administered": the address was
-    # made up by software (VMs, lab images, phone MAC randomisation), so its
+    # made up by software (lab images, phone MAC randomisation), so its
     # prefix is not a registered OUI.
     if int(mac.split(":")[0], 16) & 0b10:
         return "Locally administered"
-    vendor = conf.manufdb.lookup(mac)[1]
+    vendor = conf.manufdb.lookup(mac.lower())[1]
     # Scapy returns the MAC itself when the OUI is not in its list.
-    return "Unknown" if vendor == mac else vendor
+    return "Unknown" if vendor == mac.lower() else vendor
+
+
+def lookup_virtualization(mac: str) -> str | None:
+    """Return the virtualisation platform a MAC address belongs to, or None.
+
+    This says how the device is hosted (a virtual machine or container), and
+    nothing about what the device is: a virtual router, a virtual server and
+    a virtual desktop can all have a QEMU/KVM address. None means "no sign of
+    virtualisation in the MAC", not proof that the device is physical.
+    """
+    platform = _virtual_prefix(mac)
+    if platform:
+        return platform
+    vendor = lookup_vendor(mac).lower()
+    for text, platform in _VIRTUAL_VENDORS:
+        if text in vendor:
+            return platform
+    return None
 
 
 def arp_scan(

@@ -11,11 +11,13 @@ import {
   BACKUP,
   BACKUP_2,
   COLLECT_RESULT,
+  DEVICES,
   DIFF_1_TO_2,
   Failure,
   HEALTH,
   INTERFACES,
   installFakeApi,
+  ROUTER,
   scan,
   SCAN_3,
 } from './test/fakeApi'
@@ -154,7 +156,58 @@ test('devices table lists every device and filters by search and type', async ()
   expect(screen.getByText('No devices match the search and filter.')).toBeInTheDocument()
 })
 
+test('devices table shows virtualization as its own badge next to the type', async () => {
+  installFakeApi({ 'GET /devices': [...DEVICES, ROUTER] })
+  const user = open('/devices')
+
+  // The IOSv router: a network device that happens to run on QEMU/KVM.
+  const router = (await screen.findByRole('link', { name: '192.168.17.3' })).closest('tr')!
+  expect(within(router).getByText('network device')).toBeInTheDocument()
+  expect(within(router).getByText('QEMU/KVM', { selector: 'span[title]' })).toHaveAttribute(
+    'title',
+    'Virtual: the MAC address prefix belongs to QEMU/KVM',
+  )
+  // The IOL switch has the same type and no virtualization badge.
+  const iolSwitch = screen.getByRole('link', { name: '192.168.17.10' }).closest('tr')!
+  expect(within(iolSwitch).getByText('network device')).toBeInTheDocument()
+  expect(iolSwitch.querySelector('span[title^="Virtual"]')).toBeNull()
+  // Virtual is not a type: it is absent from the type filter, but searchable.
+  const types = within(screen.getByRole('combobox')).getAllByRole('option').map((o) => o.textContent)
+  expect(types).toEqual(['All types', 'network device', 'server', 'unknown'])
+  await user.type(screen.getByRole('searchbox'), 'qemu')
+  expect(screen.getByText('1 of 5')).toBeInTheDocument()
+})
+
 // --- Device detail ---------------------------------------------------------
+
+test('device page shows virtualization and whether the type is a guess or confirmed', async () => {
+  const api = installFakeApi({
+    'GET /devices/5': ROUTER,
+    'POST /devices/5/collect': { ...COLLECT_RESULT, device_id: 5, device_type: 'router' },
+  })
+  const user = open('/devices/5')
+
+  expect(await screen.findByText('guess from scan')).toBeInTheDocument()
+  expect(screen.getAllByTitle('Virtual: the MAC address prefix belongs to QEMU/KVM')).toHaveLength(2)
+  expect(screen.getByText('from the MAC prefix')).toBeInTheDocument()
+
+  // After a successful login the API reports the confirmed type.
+  api.routes['GET /devices/5'] = {
+    ...ROUTER,
+    device_type: 'router',
+    type_source: 'collected',
+    type_reason: "confirmed by login: show version reports software image 'VIOS-ADVENTERPRISEK9-M', with no switch image and no VLAN table",
+  }
+  await user.click(screen.getByRole('button', { name: 'Collect from device' }))
+
+  expect(await screen.findByText(/Confirmed as a router\./)).toBeInTheDocument()
+  expect(await screen.findByText('confirmed by login')).toBeInTheDocument()
+  expect(screen.getByText(/VIOS-ADVENTERPRISEK9-M/)).toBeInTheDocument()
+  expect(screen.queryByText('guess from scan')).not.toBeInTheDocument()
+  // A confirmed router keeps its collect button and tabs.
+  expect(screen.getByRole('button', { name: 'Collect from device' })).toBeInTheDocument()
+  expect(screen.getAllByRole('tab')).toHaveLength(4)
+})
 
 test('network device: collect, then interfaces and the config backup are shown', async () => {
   const api = installFakeApi({ 'POST /devices/2/collect': COLLECT_RESULT })

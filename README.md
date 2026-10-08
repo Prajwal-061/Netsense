@@ -11,6 +11,7 @@ It is a college project, built and tested against a Cisco CML lab.
 - **Device discovery** with ARP requests (Scapy) to find live hosts on the local subnet
 - **Service scanning** with Nmap to identify open ports and services on discovered hosts
 - **Cisco device collection** over SSH (Netmiko): interfaces, VLANs, MAC address tables and running configs, from authorized devices only
+- **Device classification** from service banners and open ports, confirmed as router or switch once NetSense has logged in to the device; whether a device is virtual (QEMU/KVM, VMware, ...) is shown separately
 - **Scan history** stored in a database, with a report of new devices, missing devices and IP changes between scans
 - **Config backups and diffs**: a device's running config is stored when it changes, ignoring timestamp-only differences, and any two backups can be compared line by line
 - **REST API** built with FastAPI
@@ -195,6 +196,9 @@ Usually CORS. A browser lets a page call an API on another address only if the A
 
 **The dashboard dev server refuses to start: "Port 5173 is already in use".**
 Another dev server is still running. Stop it first; the port is fixed on purpose, because the API's CORS list names it.
+
+**A router or switch shows as "unknown".**
+The type comes from what the device reveals: a service banner during a scan, or its own `show version` after a login. A device with no open ports reveals nothing, and its MAC address only says who made the network card (or that it is virtual). Enable SSH on the device, scan again so it is recognised as a network device from its SSH banner, then use "Collect from device" to confirm it as a router or switch.
 
 **Scans work but Nmap finds no open ports.**
 Not a capability problem: without the capability Nmap falls back to a TCP connect scan, which finds the same ports. With it, the scanner starts Nmap through `app/engine/pass_caps.py`, which passes `CAP_NET_RAW` to that one Nmap process for a SYN scan; `/usr/bin/nmap` itself needs no `setcap`. Check instead that the hosts answer on the scanned ports (the 100 most common by default).

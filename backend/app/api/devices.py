@@ -39,7 +39,10 @@ def _device_schema(session: Session, device: models.Device) -> schemas.Device:
         last_seen=device.last_seen,
         last_ip=device.last_ip,
         vendor=device.vendor,
+        virtualization=device.virtualization,
         device_type=device.device_type,
+        type_source=device.type_source,
+        type_reason=device.type_reason,
         latest_result=result_schema(latest) if latest else None,
     )
 
@@ -128,14 +131,16 @@ def collect_device(
 ):
     """SSH into a network device, read its state with show commands, and store it.
 
-    Only for devices classified as a network device, at an address inside
-    ALLOWED_SUBNETS. Logs in with the credentials from .env. Read-only.
+    Only for devices classified as a network device (or already confirmed as
+    a router or switch), at an address inside ALLOWED_SUBNETS. Logs in with
+    the credentials from .env. Read-only. A successful login confirms the
+    device as a router or switch from its "show version" output.
     """
-    if device.device_type != classifier.NETWORK_DEVICE:
+    if device.device_type not in classifier.NETWORK_TYPES:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            f"Device {device.id} is classified as '{device.device_type}', not "
-            f"'{classifier.NETWORK_DEVICE}', so it will not be logged in to.",
+            f"Device {device.id} is classified as '{device.device_type}', not as a "
+            "network device, so it will not be logged in to.",
         )
     host = device.last_ip
     try:
@@ -151,6 +156,7 @@ def collect_device(
             password=settings.lab_switch_password.get_secret_value(),
         )
         try:
+            version = collector.get_version(conn)
             interfaces = collector.get_interfaces(conn)
             vlans = collector.get_vlans(conn)
             mac_table = collector.get_mac_table(conn)
@@ -164,8 +170,9 @@ def collect_device(
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
 
     collection = collection_service.save_collection(
-        session, host, interfaces, vlans, mac_table, device=device
+        session, host, interfaces, vlans, mac_table, device=device, version=version
     )
+    collection_service.confirm_device_type(session, device, version, vlans)
     backup, created = collection_service.save_config_backup(session, host, config, device=device)
     previous = collection_service.latest_backup(session, host, before_id=backup.id)
 
@@ -175,6 +182,8 @@ def collect_device(
     return schemas.CollectResult(
         device_id=device.id,
         host=host,
+        device_type=device.device_type,
+        type_reason=device.type_reason,
         collection_id=collection.id,
         collected_at=collection.collected_at,
         interfaces=count(interfaces),

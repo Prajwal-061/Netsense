@@ -45,7 +45,8 @@ class ChangeReport:
 
 def save_results(session: Session, scan: Scan, devices: list[dict]) -> None:
     """Store classified devices ({"ip", "mac", "vendor", "ports", "type",
-    "reason"}) as the results of a scan, creating or updating each Device."""
+    "reason", "virtualization"}) as the results of a scan, creating or
+    updating each Device."""
     seen_at = utcnow()
     saved_macs = set()
     for found in devices:
@@ -64,7 +65,14 @@ def save_results(session: Session, scan: Scan, devices: list[dict]) -> None:
         device.last_seen = seen_at
         device.last_ip = found["ip"]
         device.vendor = found["vendor"]
-        device.device_type = found["type"]
+        device.virtualization = found.get("virtualization")
+        # A type confirmed by logging in to the device outranks a guess from
+        # a scan, so the device keeps it. The scan's own guess is still
+        # recorded below, in this scan's result.
+        if device.type_source != Device.TYPE_FROM_COLLECTION:
+            device.device_type = found["type"]
+            device.type_reason = found["reason"]
+            device.type_source = Device.TYPE_FROM_SCAN
 
         scan.results.append(
             ScanResult(

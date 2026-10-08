@@ -33,6 +33,30 @@ VLANS = [
     {"vlan_id": "10", "vlan_name": "VLAN0010", "status": "active", "interfaces": ["Et0/0"]},
 ]
 RAW_MAC_TABLE = "Mac Address Table (TextFSM could not parse this)"
+IOL_VERSION = [
+    {
+        "software_image": "X86_64BI_LINUX_L2-ADVENTERPRISEK9-M",
+        "version": "17.18.2",
+        "hostname": "SW1",
+        "running_image": "/binary.iol",
+        "hardware": [],
+    }
+]
+IOSV_VERSION = [
+    {
+        "software_image": "VIOS-ADVENTERPRISEK9-M",
+        "version": "15.9(3)M9",
+        "hostname": "R1",
+        "running_image": "/vios-adventerprisek9-m",
+        "hardware": ["IOSv"],
+    }
+]
+IOSV_ROUTER = ("192.168.17.3", "52:54:00:12:33:67", [SSH])
+ALPINE = (
+    "192.168.17.129",
+    "52:54:00:68:dd:64",
+    [{**SSH, "product": "OpenSSH", "version": "10.2", "os_type": ""}],
+)
 CONFIG = "hostname SW1\nenable secret 9 $9$not-a-real-hash\nend"
 
 
@@ -72,6 +96,7 @@ def switch_id(client):
 def switch_ssh():
     """A fake Netmiko connection that answers the collector's show commands."""
     outputs = {
+        "show version": IOL_VERSION,
         "show ip interface brief": INTERFACES,
         "show vlan brief": VLANS,
         "show mac address-table": RAW_MAC_TABLE,
@@ -367,6 +392,70 @@ def test_config_backup_of_another_device_is_404(client, switch_id, switch_ssh):
     assert client.get(f"/devices/{switch_id}/configs/999").status_code == 404
 
 
+# --- device type and virtualisation ----------------------------------------
+
+
+def test_devices_report_virtualization_separately_from_type(client):
+    scan(client, SWITCH, HOST_PC, IOSV_ROUTER, ALPINE)
+
+    devices = {d["last_ip"]: d for d in client.get("/devices").json()}
+
+    def summary(ip):
+        return devices[ip]["device_type"], devices[ip]["virtualization"]
+
+    assert summary("192.168.17.3") == ("network device", "QEMU/KVM")  # IOSv router
+    assert summary("192.168.17.129") == ("Linux/Unix host", "QEMU/KVM")  # Alpine
+    assert summary("192.168.17.10") == ("network device", None)  # IOL switch
+    assert summary("192.168.17.1") == ("unknown", "VMware")
+    router = devices["192.168.17.3"]
+    assert router["vendor"] == "QEMU/KVM"
+    assert router["type_source"] == "scan"
+    assert router["type_reason"] == "ssh banner on port 22 is 'Cisco SSH 1.25', OS IOS"
+
+
+def test_collect_confirms_the_switch_and_later_scans_keep_it(client, switch_id, switch_ssh):
+    response = client.post(f"/devices/{switch_id}/collect")
+
+    assert response.json()["device_type"] == "switch"
+    assert response.json()["type_reason"].startswith("confirmed by login: show version reports")
+    device = client.get(f"/devices/{switch_id}").json()
+    assert (device["device_type"], device["type_source"]) == ("switch", "collected")
+
+    # A new scan still only sees an SSH banner, and must not undo the login's answer.
+    scan(client, SWITCH, HOST_PC)
+    device = client.get(f"/devices/{switch_id}").json()
+    assert (device["device_type"], device["type_source"]) == ("switch", "collected")
+    assert device["latest_result"]["device_type"] == "network device"
+    # A confirmed switch can be collected from again.
+    assert client.post(f"/devices/{switch_id}/collect").status_code == 200
+
+
+def test_collect_confirms_an_iosv_router_as_a_router(client, switch_ssh):
+    _, conn = switch_ssh
+    conn.outputs["show version"] = IOSV_VERSION
+    conn.outputs["show vlan brief"] = "% Invalid input detected at '^' marker."
+    scan(client, IOSV_ROUTER)
+    router = client.get("/devices").json()[0]
+    assert router["device_type"] == "network device"
+
+    response = client.post(f"/devices/{router['id']}/collect")
+
+    assert response.status_code == 200
+    assert response.json()["device_type"] == "router"
+    assert response.json()["vlans"] is None  # stored as the raw text the router returned
+    device = client.get(f"/devices/{router['id']}").json()
+    assert (device["device_type"], device["virtualization"]) == ("router", "QEMU/KVM")
+    assert "VIOS-ADVENTERPRISEK9-M" in device["type_reason"]
+
+
+def test_failed_collect_leaves_the_scan_based_type_alone(client, switch_id):
+    with patch.object(collector, "connect", side_effect=collector.DeviceAuthenticationError("no")):
+        client.post(f"/devices/{switch_id}/collect")
+
+    device = client.get(f"/devices/{switch_id}").json()
+    assert (device["device_type"], device["type_source"]) == ("network device", "scan")
+
+
 # --- config changes and diffs ----------------------------------------------
 
 
@@ -549,7 +638,7 @@ def test_collect_refuses_devices_not_classified_as_network_devices(client, switc
     response = client.post(f"/devices/{host_pc['id']}/collect")
 
     assert response.status_code == 400
-    assert "VMware/virtual" in response.json()["detail"]
+    assert "classified as 'unknown'" in response.json()["detail"]
     connect.assert_not_called()
 
 

@@ -4,6 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import ConfigBackup, Device, DeviceCollection, utcnow
+from app.engine import classifier
 from app.engine.config_diff import config_hash
 
 
@@ -15,9 +16,15 @@ def _device_for_host(session: Session, host: str) -> Device | None:
 
 
 def save_collection(
-    session: Session, host: str, interfaces, vlans, mac_table, device: Device | None = None
+    session: Session,
+    host: str,
+    interfaces,
+    vlans,
+    mac_table,
+    device: Device | None = None,
+    version=None,
 ) -> DeviceCollection:
-    """Store one snapshot of a device's interfaces, VLANs and MAC table.
+    """Store one snapshot of a device's interfaces, VLANs, MAC table and version.
 
     The snapshot is linked to device if given, otherwise to the scanned
     device currently at that address.
@@ -28,10 +35,23 @@ def save_collection(
         interfaces=interfaces,
         vlans=vlans,
         mac_table=mac_table,
+        version=version,
     )
     session.add(collection)
     session.commit()
     return collection
+
+
+def confirm_device_type(session: Session, device: Device, version, vlans) -> None:
+    """Set a device's type from what it reported about itself after a login.
+
+    This replaces the scan's guess, and later scans do not overwrite it.
+    """
+    confirmed = classifier.classify_collected(version, vlans)
+    device.device_type = confirmed["type"]
+    device.type_reason = confirmed["reason"]
+    device.type_source = Device.TYPE_FROM_COLLECTION
+    session.commit()
 
 
 def latest_backup(session: Session, host: str, before_id: int | None = None) -> ConfigBackup | None:

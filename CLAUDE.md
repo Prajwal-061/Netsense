@@ -83,13 +83,21 @@ Every change to `app/db/models.py` needs a migration; `tests/test_db.py` fails i
 - Config text logic lives in `app/engine/config_diff.py`: `normalize_config` drops lines that change without a config change (banner, byte count, timestamps), `config_hash` hashes the normalised text, `diff_configs` returns a unified diff plus added/removed counts. Backups store the raw text and the normalised hash. Diffs are redacted after diffing, so a changed secret still shows as a changed line. Changing the normalisation rules needs a migration that re-hashes existing rows (see `migrations/versions/0002_*`).
 - Diff endpoints: `GET /devices/{id}/configs/diff?from_id=&to_id=` and `/configs/diff/latest`. They are declared before `/configs/{backup_id}` on purpose (route order).
 - The lab switch runs in VTP server mode, so VLAN definitions are in `vlan.dat`, not in the running config: creating a VLAN does not show in a config diff, only the interface lines that use it.
-- `POST /devices/{id}/collect` sends the `.env` credentials to any device classified "network device" inside `ALLOWED_SUBNETS`. The classification comes from a banner the device controls, so restrict this to an explicit list of authorized hosts before leaving the lab.
+- `POST /devices/{id}/collect` sends the `.env` credentials to any device classified "network device", "router" or "switch" inside `ALLOWED_SUBNETS`. The classification comes from a banner the device controls, so restrict this to an explicit list of authorized hosts before leaving the lab.
 - Tests set fake credentials and an in-memory `DATABASE_URL` in `tests/conftest.py` before importing the app, so they never read `.env` or `netsense.db`.
+
+## Classification
+
+- Device type and virtualisation are separate. `discovery.lookup_virtualization(mac)` gives the platform (QEMU/KVM, VMware, ...) from the MAC prefix and is stored in `devices.virtualization`; it never decides the type. There is no "virtual" device type any more (old scan results may still show `VMware/virtual`).
+- Type evidence, strongest first (`app/engine/classifier.py`): a successful login (`classify_collected`, from `show version` and the VLAN table: `router` or `switch`), a network-OS service fingerprint such as a Cisco SSH banner (`network device`), server services, a Linux/OpenSSH banner, a network vendor's MAC OUI, else `unknown`.
+- `devices.type_source` is `collected` once a login confirmed the type; `scan_service.save_results` then leaves the device's type alone. Each scan result still records that scan's own guess.
+- A device with no open ports can only be `unknown`. The lab's IOSv router at 192.168.17.3 had SSH disabled on 2026-10-08, which is why it was not recognised; that is a device configuration matter for the user, not a classifier bug. (It answers ping with TTL 255, typical of Cisco IOS, which could become a weak hint if ever needed.)
 
 ## After changing backend code
 
 - A running backend keeps the code it started with. After any backend change, the user's API must be restarted (or be running with `--reload`) before the feature is tested, and `alembic upgrade head` must have been run. Check the running process, not just the tests: `curl -s http://127.0.0.1:8000/health` shows `api_revision`, and `/openapi.json` lists the routes it really serves. On 2026-10-08 a backend started before the config-diff feature produced three "bugs" at once: 422 "valid integer" on `/configs/diff`, wrong "no change" badges, and duplicate backups with old-style hashes.
-- `API_REVISION` in `backend/app/api/health.py` and `REQUIRED_API_REVISION` in `frontend/src/api.ts` must be equal. Add 1 to both whenever an endpoint or response field the dashboard uses is added or changed. The dashboard shows a warning banner when the backend reports a lower number.
+- `API_REVISION` in `backend/app/api/health.py` and `REQUIRED_API_REVISION` in `frontend/src/api.ts` must be equal (currently 3). Add 1 to both whenever an endpoint or response field the dashboard uses is added or changed. The dashboard shows a warning banner when the backend reports a lower number.
+- The API refuses to start when the database is not at the newest migration (`database.migration_status`), with a message to run `alembic upgrade head`.
 - Never apply a migration that changes how stored data is interpreted while an old backend is still running against the same database: the old code then writes inconsistent rows (migration `0003` repairs the config backups this produced).
 
 ## Frontend
@@ -110,5 +118,5 @@ Every change to `app/db/models.py` needs a migration; `tests/test_db.py` fails i
 
 ## Status
 
-- Done: foundation, settings loading (`app/core/config.py`, pydantic-settings), device collector (`app/engine/collector.py`, Netmiko + TextFSM), ARP discovery (`app/engine/discovery.py`, Scapy, offline OUI vendor lookup), Nmap service scanner (`app/engine/scanner.py`, XML parsed with ElementTree), rule-based device classifier (`app/engine/classifier.py`), database models and Alembic migrations, scan service with change detection between scans, config backups with normalised hashing and diffs, FastAPI backend (scans in the background, devices, collection, CORS), React dashboard (overview, devices, device detail with collection, scan history). Backend and frontend both have tests that need no lab.
+- Done: foundation, settings loading (`app/core/config.py`, pydantic-settings), device collector (`app/engine/collector.py`, Netmiko + TextFSM), ARP discovery (`app/engine/discovery.py`, Scapy, offline OUI vendor lookup), Nmap service scanner (`app/engine/scanner.py`, XML parsed with ElementTree), device classifier (`app/engine/classifier.py`: scan-based guesses, confirmation by login, virtualisation as a separate attribute), database models and Alembic migrations, scan service with change detection between scans, config backups with normalised hashing and diffs, FastAPI backend (scans in the background, devices, collection, CORS), React dashboard (overview, devices, device detail with collection, scan history). Backend and frontend both have tests that need no lab.
 - Not built yet: authentication, deployment on the Pi.

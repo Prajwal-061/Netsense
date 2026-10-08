@@ -45,12 +45,13 @@ def print_results(scan: Scan) -> None:
                 result.ip,
                 result.device.mac,
                 result.device.vendor,
+                result.device.virtualization or "-",
                 ports or "-",
                 result.device_type,
                 result.reason,
             ]
         )
-    print_table(["IP address", "MAC address", "Vendor", "Open ports", "Type", "Reason"], rows)
+    print_table(["IP address", "MAC address", "Vendor", "Virtual", "Open ports", "Type", "Reason"], rows)
 
 
 def print_changes(report: scan_service.ChangeReport) -> None:

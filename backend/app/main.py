@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from app.api import devices, health, scans
 from app.api.deps import get_engine
 from app.core.config import get_settings
-from app.db.database import is_migrated
+from app.db.database import is_migrated, migration_status
 from app.services import scan_service
 
 logger = logging.getLogger("uvicorn.error")
@@ -30,6 +30,12 @@ async def lifespan(app: FastAPI):
     if not is_migrated(engine):
         raise RuntimeError(
             "The database has not been created. Run: cd backend && .venv/bin/alembic upgrade head"
+        )
+    current, newest = migration_status(engine)
+    if current != newest:
+        raise RuntimeError(
+            f"The database is at revision {current} but this code needs {newest}. "
+            "Run: cd backend && .venv/bin/alembic upgrade head"
         )
     # A scan cannot outlive the process that ran it, so anything still
     # "running" now was cut off, and would block every new scan.

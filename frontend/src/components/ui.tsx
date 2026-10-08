@@ -4,13 +4,14 @@ import type { ButtonHTMLAttributes, ReactNode } from 'react'
 import { ApiError } from '../api'
 import type { ScanStatus } from '../api'
 
-type Tone = 'green' | 'red' | 'amber' | 'blue' | 'violet' | 'cyan' | 'slate'
+type Tone = 'green' | 'red' | 'amber' | 'blue' | 'indigo' | 'violet' | 'cyan' | 'slate'
 
 const TONES: Record<Tone, string> = {
   green: 'bg-emerald-50 text-emerald-800 ring-emerald-600/20',
   red: 'bg-red-50 text-red-800 ring-red-600/20',
   amber: 'bg-amber-50 text-amber-800 ring-amber-600/20',
   blue: 'bg-blue-50 text-blue-800 ring-blue-600/20',
+  indigo: 'bg-indigo-50 text-indigo-800 ring-indigo-600/20',
   violet: 'bg-violet-50 text-violet-800 ring-violet-600/20',
   cyan: 'bg-cyan-50 text-cyan-800 ring-cyan-600/20',
   slate: 'bg-slate-100 text-slate-700 ring-slate-500/20',
@@ -19,9 +20,10 @@ const TONES: Record<Tone, string> = {
 // One colour per device type, used everywhere the type is shown.
 const TYPE_TONES: Record<string, Tone> = {
   'network device': 'blue',
+  router: 'indigo',
+  switch: 'blue',
   server: 'violet',
   'Linux/Unix host': 'amber',
-  'VMware/virtual': 'cyan',
 }
 
 const SCAN_TONES: Record<ScanStatus, Tone> = {
@@ -42,6 +44,26 @@ export function Badge({ tone = 'slate', children }: { tone?: Tone; children: Rea
 
 export function TypeBadge({ type }: { type: string }) {
   return <Badge tone={TYPE_TONES[type] ?? 'slate'}>{type}</Badge>
+}
+
+/**
+ * How the device is hosted, e.g. "QEMU/KVM". Deliberately a different shape
+ * from the type badge (dashed outline, no fill): it is a separate fact about
+ * the device, not another kind of type. Renders nothing for a null value.
+ */
+export function VirtualBadge({ platform }: { platform: string | null | undefined }) {
+  if (!platform) return null
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-md border border-dashed border-cyan-600/60 px-1.5 py-0.5 text-xs font-medium whitespace-nowrap text-cyan-800"
+      title={`Virtual: the MAC address prefix belongs to ${platform}`}
+    >
+      <span aria-hidden="true" className="text-[0.65rem] tracking-wide text-cyan-600 uppercase">
+        VM
+      </span>
+      {platform}
+    </span>
+  )
 }
 
 export function ScanStatusBadge({ status }: { status: ScanStatus }) {
