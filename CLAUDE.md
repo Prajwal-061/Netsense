@@ -47,31 +47,37 @@ docs/
 ## Commands
 
 ```bash
-source backend/.venv/bin/activate                      # activate the virtual environment
-backend/.venv/bin/pip install -r backend/requirements.txt   # install dependencies
-cd backend && .venv/bin/pytest                         # run the tests (no lab needed)
-cd backend && .venv/bin/alembic upgrade head           # create/upgrade the database (never with sudo)
-cd backend && .venv/bin/alembic revision --autogenerate -m "what changed"  # new migration after editing models.py
-backend/.venv/bin/python backend/scripts/collect_switch.py  # collect from the lab switch (SSH, show commands only)
-cd backend && .venv/bin/uvicorn app.main:app --host 192.168.17.132 --port 8000  # run the API (never as root); docs at http://192.168.17.132:8000/docs
-cd frontend && npm run dev       # dashboard dev server at http://192.168.17.132:5173 (API must be running too)
-cd frontend && npm test          # page tests (Vitest + jsdom, fake API, no backend needed)
-cd frontend && npm run build && npm run lint   # type-check, production build, lint
-sudo backend/.venv/bin/python -B backend/scripts/discover.py  # ARP scan of the lab network (root: ask first)
-sudo backend/.venv/bin/python -B backend/scripts/scan.py      # ARP scan + Nmap + classifier, saved to the database, prints changes (root: ask first)
+# Backend (from backend/, as the normal user, never root)
+source .venv/bin/activate
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000   # API; docs at http://192.168.17.132:8000/docs
+pytest                                                       # tests (no lab needed)
+alembic upgrade head                                         # create/upgrade the database (never with sudo)
+alembic revision --autogenerate -m "what changed"            # new migration after editing models.py
+python scripts/collect_switch.py                             # collect from the lab switch (SSH, show commands only)
+python scripts/discover.py                                   # ARP scan of the lab network
+python scripts/scan.py                                       # ARP scan + Nmap + classifier, saved, prints changes
+
+# Frontend (from frontend/; in a non-interactive shell run `. ~/.nvm/nvm.sh` first)
+npm run dev -- --host            # dashboard at http://192.168.17.132:5173 (API must be running too)
+npm test                         # page tests (Vitest + jsdom, fake API, no backend needed)
+npm run build && npm run lint    # type-check, production build, lint
+
+# Without activating the venv, use backend/.venv/bin/python (not python3) in place of python
 ```
+
+Start the API with `python -m uvicorn`, not the `uvicorn` script: only `.venv/bin/python` is guaranteed to hold `cap_net_raw`, and the script's shebang names `python3`. Scans and collection are network actions: the scan scripts, `POST /scans` and `POST /devices/{id}/collect` still fall under the Rules below.
 
 Imports are rooted at `backend/` (`from app.engine import collector`). Add `--show-config` to `collect_switch.py` to print the full running config.
 
-Discovery and the Nmap scanner only target addresses inside `ALLOWED_SUBNETS` (`.env`, default `192.168.17.0/24`). The VM's other interface, `ens160` on 192.168.44.0/24, is the NAT network and must never be scanned. `-B` stops root writing `__pycache__` files into the repo. `sudo` needs a password on this VM, so the user has to run the sudo commands themselves. `scanner.scan_hosts()` works without root (it falls back from a SYN scan to a connect scan).
+Discovery and the Nmap scanner only target addresses inside `ALLOWED_SUBNETS` (`.env`, default `192.168.17.0/24`). The VM's other interface, `ens160` on 192.168.44.0/24, is the NAT network and must never be scanned. If a scan script is ever run with sudo, add `-B` so root does not write `__pycache__` files into the repo. `sudo` needs a password on this VM, so the user has to run any sudo command themselves; with the capability set, scans do not need sudo.
 
 Every change to `app/db/models.py` needs a migration; `tests/test_db.py` fails if one is missing. `netsense.db` can hold running configs with password hashes, so it must stay out of git. `collect_switch.py` does not save to the database yet (`collection_service.py` has the functions for it).
 
 ## API
 
 - **No authentication yet. It is required before NetSense runs on any real network.** Anyone who can reach the port can start scans and make the server SSH into devices with the stored credentials. Until then: lab network only, and bind uvicorn to the lab address (192.168.17.132), never 0.0.0.0, so it is not served on the NAT interface.
-- The API must not run as root. ARP scans need CAP_NET_RAW; `GET /health` reports `raw_sockets` true/false. Without it, `POST /scans` is accepted and the scan is then saved as failed with the reason. Dev option: recreate the venv with `python3 -m venv --copies` and `sudo setcap cap_net_raw+ep` on `.venv/bin/python`, `python3` and `python3.12` (never on the default symlinked venv: that would change `/usr/bin/python3`). On the Pi: a systemd unit with a dedicated user and `AmbientCapabilities=CAP_NET_RAW`.
-- Without root, Nmap runs a connect scan (`-sT`); capabilities on Python are not passed on to the Nmap child process.
+- The API must not run as root. ARP scans need CAP_NET_RAW; `GET /health` reports `raw_sockets` true/false. Without it, `POST /scans` is accepted and the scan is then saved as failed with the reason. Dev setup (README, "Letting the API scan without root"), applied on this VM: `backend/.venv` is built with `python3 -m venv --copies`, `.venv/bin/python3` and `python3.12` are symlinks to `.venv/bin/python`, and that one file has `cap_net_raw=ep` (the user ran `sudo setcap cap_net_raw+ep .venv/bin/python`). `setcap` takes one capability and one file per pair; a list of files after one capability only sets the first. Rebuilding the venv drops the capability: rebuild with `--copies`, recreate the two symlinks, and have the user repeat the setcap. Never setcap a symlinked venv: that would change `/usr/bin/python3`. On the Pi: a systemd unit with a dedicated user and `AmbientCapabilities=CAP_NET_RAW`.
+- Nmap does not inherit file capabilities from Python, so `scanner._nmap_prefix` starts it through `app/engine/pass_caps.py`, which raises `CAP_NET_RAW` into the ambient set and execs `nmap --privileged -sS`. `/usr/bin/nmap` has no capabilities and must stay that way. With neither root nor the capability the scanner falls back to a connect scan (`-sT`). `cap_net_admin` is not needed.
 - One scan at a time (`scan_service.start_scan` raises `ScanInProgressError`, the API answers 409). The lock is per process, so run a single uvicorn worker. Scans left "running" by a crash are marked failed at API start-up.
 - `POST /scans` never takes an interface from the client. Config backups are listed as metadata; `GET /devices/{id}/configs/{backup_id}` returns the text with secrets masked by `collection_service.redact_config` (best effort, display only). Never add an endpoint that returns the raw config while there is no authentication.
 - `POST /devices/{id}/collect` sends the `.env` credentials to any device classified "network device" inside `ALLOWED_SUBNETS`. The classification comes from a banner the device controls, so restrict this to an explicit list of authorized hosts before leaving the lab.
@@ -83,7 +89,7 @@ Every change to `app/db/models.py` needs a migration; `tests/test_db.py` fails i
 - When an API schema changes, update `frontend/src/api.ts` and `frontend/src/test/fakeApi.ts` to match.
 - A running scan is followed by polling `GET /scans` (2 s while running, 30 s otherwise) in `useScans`; `useRefreshWhenScanFinishes` then invalidates every query.
 - The UI has not been checked in a real browser from this VM (no browser, and headless Chromium's libraries could not be installed without sudo). Page behaviour is covered by `src/App.test.tsx`; visual changes need the user to look.
-- `npm run dev` uses `vite --host`, which listens on every interface including the NAT one. Development only.
+- The dev server is started with `npm run dev -- --host`, which listens on every interface including the NAT one. Development only.
 
 ## Rules
 

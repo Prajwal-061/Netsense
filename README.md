@@ -63,57 +63,132 @@ The engine does the network work, the database stores what the engine finds, and
 └── README.md
 ```
 
-## Getting started
+## Setup and run
 
-Requires Python 3.12+, git and nmap.
+Requires Python 3.12+, git, nmap and Node.js LTS. The addresses below are the development VM's (192.168.17.132 on the lab network); replace them with your own.
+
+### 1. Backend: virtual environment
 
 ```bash
-# Create and activate the virtual environment
-python3 -m venv backend/.venv
-source backend/.venv/bin/activate
+cd backend
 
-# Install the dependencies
-pip install -r backend/requirements.txt
+# --copies gives the venv its own copy of Python instead of a symlink to
+# /usr/bin/python3. Step 2 depends on this.
+python3 -m venv --copies .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 
-# Create your local settings file, then edit it
-cp .env.example .env
+# Local settings: lab switch address and credentials, allowed subnets
+cp ../.env.example ../.env      # then edit ../.env
 
-# Run the tests (they mock the switch, so no lab is needed)
-cd backend && pytest && cd ..
+# Create the SQLite database, backend/netsense.db (never with sudo)
+alembic upgrade head
 
-# Collect interfaces, VLANs, MAC table, version and running config from the lab switch
-python backend/scripts/collect_switch.py
-
-# Discover devices on the lab network with an ARP scan (raw packets need root)
-sudo backend/.venv/bin/python -B backend/scripts/discover.py
-
-# Create the SQLite database, backend/netsense.db (run as yourself, not with sudo)
-cd backend && alembic upgrade head && cd ..
-
-# Discover, port-scan the discovered hosts with Nmap, guess each device's type,
-# save the scan and report what changed since the previous one
-sudo backend/.venv/bin/python -B backend/scripts/scan.py
-
-# Run the API (as yourself, not root), then open http://192.168.17.132:8000/docs
-cd backend && uvicorn app.main:app --host 192.168.17.132 --port 8000
+# Run the tests. They mock the network, so no lab is needed.
+pytest
 ```
 
-### Dashboard
+`.env` and `netsense.db` are ignored by git and must never be committed: the first holds credentials, the second can hold device configs.
 
-Requires Node.js LTS (for example with [nvm](https://github.com/nvm-sh/nvm): `nvm install --lts`).
+### 2. Backend: permission to scan without root
+
+ARP scans and Nmap SYN scans send hand-built packets on a raw socket. Linux allows that only for root, or for a program that holds the `CAP_NET_RAW` capability. The API must not run as root, so the capability is given to one file, the venv's own Python:
+
+```bash
+cd backend
+
+# Must print a path inside backend/.venv. If it prints /usr/bin/python3.12,
+# stop: the venv was made without --copies. Rebuild it as in step 1.
+readlink -f .venv/bin/python
+
+sudo setcap cap_net_raw+ep .venv/bin/python
+
+# Must print: .venv/bin/python cap_net_raw=ep
+getcap .venv/bin/python
+```
+
+Why the venv's own Python and never the system one: a capability belongs to a file, and every program started from that file gets it. On `/usr/bin/python3` that would be every Python script run by every user on the machine. On the venv's copy it is only what is started from this project's environment.
+
+Rebuilding the venv creates a new file without the capability, so run the `setcap` command again afterwards.
+
+### 3. Start the backend
+
+```bash
+cd backend
+source .venv/bin/activate
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+Start it as your normal user, not with sudo. `python -m uvicorn` matters: it runs uvicorn on `.venv/bin/python`, the file that holds the capability (see Troubleshooting). `--host 0.0.0.0` listens on every network interface; `--host 192.168.17.132` would serve the lab network only.
+
+Check: `curl http://192.168.17.132:8000/health` should show `"database": true` and `"raw_sockets": true`.
+
+### 4. Start the dashboard
+
+In a second terminal:
 
 ```bash
 cd frontend
-npm install
-npm run dev        # then open http://192.168.17.132:5173
-npm test           # page tests, no backend needed
+npm install                # first time only
+npm run dev -- --host
 ```
 
-The dashboard calls the API at `http://192.168.17.132:8000`. To use another address, put `VITE_API_URL=...` in `frontend/.env.local` and add the dashboard's own address to `CORS_ORIGINS` in `.env`. The API must be running for the dashboard to show anything.
+`--host` makes the dev server reachable from other machines, not just from the VM itself.
 
-The API has **no authentication yet**, so run it only on an isolated lab network. Binding to the lab address, rather than `0.0.0.0`, keeps it off every other interface.
+The dashboard calls the API at `http://192.168.17.132:8000`. To use another address, put `VITE_API_URL=http://<address>:8000` in `frontend/.env.local` and add the dashboard's own address to `CORS_ORIGINS` in `.env`.
 
-`.env` holds the lab switch address and credentials, and `ALLOWED_SUBNETS`, the list of networks the discovery and port scans are permitted to target. It is ignored by git and must never be committed.
+### 5. Open it
+
+| What | URL |
+|---|---|
+| Dashboard | http://192.168.17.132:5173 |
+| API docs (try the endpoints) | http://192.168.17.132:8000/docs |
+| API health | http://192.168.17.132:8000/health |
+
+The API has **no authentication yet**, so run it only on an isolated lab network.
+
+### Command-line scripts
+
+With the venv activated, from `backend/`:
+
+```bash
+python scripts/collect_switch.py   # SSH to the lab switch, read-only show commands
+python scripts/discover.py         # ARP scan of the lab network
+python scripts/scan.py             # ARP scan + Nmap + classifier, saved, with a change report
+```
+
+The two scan scripts need step 2, or can be run with sudo instead: `sudo .venv/bin/python -B scripts/scan.py`.
+
+### Tests
+
+```bash
+cd backend && source .venv/bin/activate && pytest     # backend
+cd frontend && npm test                               # dashboard pages
+```
+
+### Troubleshooting
+
+**Scans fail with "ARP scanning needs root or the CAP_NET_RAW capability", or `/health` shows `"raw_sockets": false`.**
+The API is running on a Python file that does not hold the capability. A venv made with `--copies` contains three separate files, `python`, `python3` and `python3.12`, and `setcap` in step 2 marks only `python`. The `uvicorn` command is a script whose first line names `python3`, so `uvicorn app.main:app ...` and `.venv/bin/uvicorn ...` can run on a copy without the capability. Fixes:
+
+- Start with `python -m uvicorn ...` as in step 3.
+- Check the capability is still there: `getcap .venv/bin/python`. It is lost when the venv is rebuilt.
+- Optionally make all three names the same file, so the mistake cannot happen: `ln -sf python .venv/bin/python3 && ln -sf python .venv/bin/python3.12`.
+
+**The dashboard says "API not reachable" although the API is running.**
+Usually CORS. A browser lets a page call an API on another address only if the API allows that page's origin (scheme, host and port), and the API allows `http://192.168.17.132:5173`, `http://localhost:5173` and `http://127.0.0.1:5173` by default.
+
+- Open the dashboard at `http://192.168.17.132:5173`, the 192.168.17.x address, not through another address of the VM.
+- If your addresses differ, list the dashboard's origin in `CORS_ORIGINS` in `.env` and restart the backend.
+- Check the API itself from the laptop: `http://192.168.17.132:8000/health` should load in the browser. If it does not, the backend was not started with `--host 0.0.0.0`, or a firewall blocks port 8000.
+
+**The dashboard dev server refuses to start: "Port 5173 is already in use".**
+Another dev server is still running. Stop it first; the port is fixed on purpose, because the API's CORS list names it.
+
+**Scans work but Nmap finds no open ports.**
+Not a capability problem: without the capability Nmap falls back to a TCP connect scan, which finds the same ports. With it, the scanner starts Nmap through `app/engine/pass_caps.py`, which passes `CAP_NET_RAW` to that one Nmap process for a SYN scan; `/usr/bin/nmap` itself needs no `setcap`. Check instead that the hosts answer on the scanned ports (the 100 most common by default).
+
+**On a Raspberry Pi (later).** A systemd service with a dedicated user and `AmbientCapabilities=CAP_NET_RAW` replaces step 2, so that no file on disk is privileged.
 
 ## Responsible use
 

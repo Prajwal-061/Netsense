@@ -1,6 +1,7 @@
 """Scanner tests. Nmap is mocked with sample XML, so no root or lab is needed."""
 
 import subprocess
+import sys
 from ipaddress import IPv4Network
 from unittest.mock import MagicMock, patch
 
@@ -37,6 +38,16 @@ NMAP_XML = """<?xml version="1.0" encoding="UTF-8"?>
 <runstats><finished exit="success"/></runstats>
 </nmaprun>
 """
+
+
+@pytest.fixture(autouse=True)
+def unprivileged():
+    """Run every test as a plain user, whatever the test runner's own privileges."""
+    with (
+        patch("app.engine.scanner.os.geteuid", return_value=1000),
+        patch.object(discovery, "can_open_raw_socket", return_value=False),
+    ):
+        yield
 
 
 @pytest.fixture
@@ -118,12 +129,32 @@ def test_scan_hosts_builds_the_nmap_command(nmap):
     assert nmap.call_args.kwargs["timeout"] == 50
 
 
-@pytest.mark.parametrize("euid, scan_type", [(0, "-sS"), (1000, "-sT")])
-def test_scan_hosts_uses_syn_scan_only_as_root(nmap, euid, scan_type):
-    with patch("app.engine.scanner.os.geteuid", return_value=euid):
+def test_scan_hosts_as_root_runs_a_syn_scan_directly(nmap):
+    with patch("app.engine.scanner.os.geteuid", return_value=0):
         scanner.scan_hosts(["192.168.17.10"], allowed=ALLOWED)
 
-    assert scan_type in nmap.call_args.args[0]
+    assert nmap.call_args.args[0][:2] == ["nmap", "-sS"]
+
+
+def test_scan_hosts_without_privileges_runs_a_connect_scan(nmap):
+    scanner.scan_hosts(["192.168.17.10"], allowed=ALLOWED)
+
+    command = nmap.call_args.args[0]
+    assert command[:2] == ["nmap", "-sT"]
+    assert "--privileged" not in command
+
+
+def test_scan_hosts_with_cap_net_raw_passes_it_to_nmap_for_a_syn_scan(nmap):
+    with patch.object(discovery, "can_open_raw_socket", return_value=True):
+        scanner.scan_hosts(["192.168.17.10"], allowed=ALLOWED)
+
+    command = nmap.call_args.args[0]
+    # Started through the launcher, by this same Python, in isolated mode.
+    assert command[:2] == [sys.executable, "-I"]
+    assert command[2].endswith("pass_caps.py")
+    assert command[3:6] == ["nmap", "--privileged", "-sS"]
+    assert "-sT" not in command
+    assert command[-1] == "192.168.17.10"
 
 
 @pytest.mark.parametrize("ip", ["192.168.44.2", "8.8.8.8", "192.168.18.1"])

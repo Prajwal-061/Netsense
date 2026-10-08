@@ -6,23 +6,43 @@ The XML format is stable and machine-readable; the normal text output is not.
 
 import os
 import subprocess
+import sys
 import xml.etree.ElementTree as ET
 from ipaddress import IPv4Address, IPv4Network
+from pathlib import Path
 
 from app.engine import discovery
+
+_PASS_CAPS = Path(__file__).with_name("pass_caps.py")
 
 
 class ScannerError(Exception):
     """Nmap could not be run, failed, or took too long."""
 
 
+def _nmap_prefix() -> list[str]:
+    """How to start Nmap, and with which scan type, for this process's privileges.
+
+    A SYN scan needs a raw socket. There are three cases:
+      - root: Nmap can simply do it.
+      - not root, but this Python holds CAP_NET_RAW: Nmap is a separate
+        program and would not inherit the capability, so it is started
+        through pass_caps.py, which hands the capability on to it.
+        --privileged tells Nmap to use raw sockets although it is not root.
+      - neither: a connect scan, which uses the normal socket API.
+    """
+    if os.geteuid() == 0:
+        return ["nmap", "-sS"]
+    if discovery.can_open_raw_socket():
+        # -I: isolated mode, so the launcher ignores PYTHON* environment
+        # variables and the user's site-packages.
+        return [sys.executable, "-I", str(_PASS_CAPS), "nmap", "--privileged", "-sS"]
+    return ["nmap", "-sT"]
+
+
 def _build_command(ips: list[str], top_ports: int, host_timeout: int) -> list[str]:
-    # SYN scan needs a raw socket, so it is only possible as root. Without
-    # root, fall back to a connect scan, which uses the normal socket API.
-    scan_type = "-sS" if os.geteuid() == 0 else "-sT"
     return [
-        "nmap",
-        scan_type,
+        *_nmap_prefix(),
         "-sV",  # probe open ports to identify the service, product and version
         "--top-ports", str(top_ports),  # the N most commonly open ports
         "-Pn",  # skip Nmap's own host discovery: ARP already proved the hosts are up
@@ -83,7 +103,7 @@ def scan_hosts(
     "version", "extra_info", "os_type"}], "timed_out"}, ...].
 
     Refuses (SubnetNotAllowedError) if any IP is outside ALLOWED_SUBNETS.
-    Uses a SYN scan as root and a connect scan otherwise.
+    Uses a SYN scan as root or with CAP_NET_RAW, and a connect scan otherwise.
     """
     # IPv4Address() rejects anything that is not a plain address, so nothing
     # from the list can reach Nmap's command line as an option or a range.
