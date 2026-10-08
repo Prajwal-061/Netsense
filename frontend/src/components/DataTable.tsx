@@ -60,11 +60,22 @@ function cellText(value: unknown): string {
 /** Green for up/active, red for anything down, as on a switch's own LEDs. */
 function stateColour(text: string): string {
   const value = text.toLowerCase()
-  if (value === 'up' || value === 'active' || value === 'connected') {
+  // Interface and VLAN states, spanning tree (FWD/BLK), trunks, OSPF adjacencies.
+  if (
+    ['up', 'active', 'connected', 'fwd', 'trunking'].includes(value) ||
+    value.startsWith('full')
+  ) {
     return 'font-semibold text-emerald-700'
   }
-  if (value.includes('down') || value.includes('err-disabled') || value === 'notconnect') {
+  if (
+    value.includes('down') ||
+    value.includes('err-disabled') ||
+    ['notconnect', 'blk', 'not-trunking', 'none'].includes(value)
+  ) {
     return 'font-semibold text-red-700'
+  }
+  if (['lrn', 'lis', 'altn', 'back'].includes(value) || value.startsWith('init') || value.startsWith('exstart')) {
+    return 'font-semibold text-amber-700'
   }
   return 'text-slate-800'
 }

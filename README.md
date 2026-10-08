@@ -10,7 +10,7 @@ It is a college project, built and tested against a Cisco CML lab.
 
 - **Device discovery** with ARP requests (Scapy) to find live hosts on the local subnet
 - **Service scanning** with Nmap to identify open ports and services on discovered hosts
-- **Cisco device collection** over SSH (Netmiko): interfaces, VLANs, MAC address tables and running configs, from authorized devices only
+- **Cisco device collection** over SSH (Netmiko) from every router and switch in one parallel run: interfaces, CDP neighbors, ARP and running config from all; VLANs, trunks, spanning tree and MAC table from switches; routing table and OSPF from routers. Read-only show commands, authorized devices only
 - **Device classification** from service banners and open ports, confirmed as router or switch once NetSense has logged in to the device; whether a device is virtual (QEMU/KVM, VMware, ...) is shown separately
 - **Scan history** stored in a database, with a report of new devices, missing devices and IP changes between scans
 - **Config backups and diffs**: a device's running config is stored when it changes, ignoring timestamp-only differences, and any two backups can be compared line by line
@@ -196,6 +196,9 @@ Usually CORS. A browser lets a page call an API on another address only if the A
 
 **The dashboard dev server refuses to start: "Port 5173 is already in use".**
 Another dev server is still running. Stop it first; the port is fixed on purpose, because the API's CORS list names it.
+
+**A collection fails with "SSH negotiation failed" for an old router.**
+Old IOS images (for example IOSv 15.x) only offer SHA-1 SSH algorithms. Paramiko removed those in version 4, which is why `backend/requirements.txt` pins `paramiko<4`. Reinstall the requirements if a newer Paramiko got installed. A device reached this way is marked with a "legacy SSH" note.
 
 **A router or switch shows as "unknown".**
 The type comes from what the device reveals: a service banner during a scan, or its own `show version` after a login. A device with no open ports reveals nothing, and its MAC address only says who made the network card (or that it is virtual). Enable SSH on the device, scan again so it is recognised as a network device from its SSH banner, then use "Collect from device" to confirm it as a router or switch.

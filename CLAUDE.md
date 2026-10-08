@@ -18,15 +18,31 @@ Networking student studying for CCNA. Briefly explain what you are doing at each
 
 - Dev machine: Ubuntu Server 24.04 VM that stands in for the Pi, Python 3.12
 - VM address: 192.168.17.132 on a VMware host-only network (the lab), plus a NAT adapter for internet
-- Lab: Cisco CML with a switch at 192.168.17.10 (SSH enabled, VLAN10) on the same host-only network
+- Lab: Cisco CML (host 192.168.17.128), described under "Lab" below
 - System packages installed: git, python3-venv, python3-pip, nmap
 - Node.js 24 LTS installed with nvm in the user's home (no sudo). In a non-interactive shell, load it first: `. ~/.nvm/nvm.sh`
+
+## Lab
+
+Management network 192.168.17.0/24 (out-of-band, one port per device, CDP disabled on those ports). This is the only network NetSense scans or logs in over.
+
+| Device | Type | Management | Notes |
+|---|---|---|---|
+| R1 | IOSv router (IOS 15.9) | 192.168.17.3, Gi0/0 | Router-on-a-stick on Gi0/1 for VLAN 20 and 30; Gi0/2 to R2 |
+| R2 | IOSv router (IOS 15.9) | 192.168.17.4, Gi0/0 | Gi0/1 to R1; loopbacks 10.2.1.0/24 and 10.2.2.0/24 |
+| SW1 | IOL switch (IOS XE 17.18) | 192.168.17.10, Et0/0 | Et0/1 trunk to R1; Et0/2-0/3 trunks to SW2; STP root for VLAN 20 and 30 |
+| SW2 | IOL switch (IOS XE 17.18) | 192.168.17.11, Et0/0 | Et0/1-0/2 trunks to SW1 (one is blocked by STP); Et0/3 to the Alpine host |
+
+- Data network: VLAN 20 USERS 10.1.20.0/24 and VLAN 30 SERVERS 10.1.30.0/24, routed on R1. R1 to R2 is 10.0.12.0/30, OSPF area 0. Alpine host 10.1.20.10 on SW2 Et0/3 (VLAN 20). None of this is reachable from, or scanned by, the VM.
+- All devices use the same lab credentials from `.env` (`LAB_SWITCH_USERNAME` / `LAB_SWITCH_PASSWORD`, names kept from when there was one switch). Code gets them through `app/core/credentials.py::credentials_for(host, settings)`, the one place to change when devices get their own accounts.
+- The IOSv routers only offer SHA-1 SSH (`diffie-hellman-group14-sha1` key exchange, `ssh-rsa` host key). Paramiko 4+ removed both, so `requirements.txt` pins `paramiko<4`; do not lift the pin while IOSv is in the lab (`tests/test_collector_lab.py` fails if it is lifted). Each collection from such a device records a "legacy SSH" note.
+- `tests/fixtures/lab_outputs.json` holds the raw output of every collected show command from all four devices (no running configs). `tests/lab.py` replays it through the real TextFSM templates as a fake lab.
 
 ## Layout
 
 ```
 backend/app/engine/   discovery, scanning, classification, device collection
-backend/app/api/      FastAPI routes (scans.py, devices.py, health.py), schemas.py, deps.py
+backend/app/api/      FastAPI routes (scans.py, devices.py, collections.py, health.py), schemas.py, deps.py
 backend/app/main.py   FastAPI app: CORS, startup checks, routers
 backend/app/db/       database models (models.py) and engine setup (database.py)
 backend/app/services/ glue between engine and database (scan_service.py, collection_service.py)
@@ -38,7 +54,7 @@ backend/.venv/        virtual environment (not committed)
 frontend/             React dashboard: Vite + React + TypeScript, Tailwind CSS, TanStack Query
 frontend/src/api.ts       typed API client (mirrors backend/app/api/schemas.py)
 frontend/src/queries.ts   TanStack Query hooks: all fetching, polling and cache refresh
-frontend/src/pages/       Overview, Devices, DeviceDetail, Scans, ScanDetail
+frontend/src/pages/       Overview, Devices, DeviceDetail, Scans, ScanDetail, Collections
 frontend/src/components/  shared UI; frontend/src/test/fakeApi.ts fakes the API in tests
 lab/                  CML topology and switch configs
 docs/
@@ -80,6 +96,9 @@ Every change to `app/db/models.py` needs a migration; `tests/test_db.py` fails i
 - Nmap does not inherit file capabilities from Python, so `scanner._nmap_prefix` starts it through `app/engine/pass_caps.py`, which raises `CAP_NET_RAW` into the ambient set and execs `nmap --privileged -sS`. `/usr/bin/nmap` has no capabilities and must stay that way. With neither root nor the capability the scanner falls back to a connect scan (`-sT`). `cap_net_admin` is not needed.
 - One scan at a time (`scan_service.start_scan` raises `ScanInProgressError`, the API answers 409). The lock is per process, so run a single uvicorn worker. Scans left "running" by a crash are marked failed at API start-up.
 - `POST /scans` never takes an interface from the client. Config backups are listed as metadata; `GET /devices/{id}/configs/{backup_id}` returns the text with secrets masked by `config_diff.redact_config` (best effort, display only). Never add an endpoint that returns the raw config while there is no authentication.
+- Network collection: `POST /collections` logs in to every device typed router, switch or network device (inside `ALLOWED_SUBNETS`, at its last scanned IP), `MAX_PARALLEL_DEVICES` (4) at a time. Worker threads only talk to devices (`collector.collect_host`); all database writes happen in the coordinating thread as each device finishes. One run at a time (409). Results are `device_collections` rows with status pending/success/failed, linked to a `network_collections` run.
+- What is collected is defined once, in `collector.COMMANDS` (key, command, scope all/switch/router). All output goes into `device_collections.data`, one JSON document keyed by those names, so adding a command needs no migration: add it to `COMMANDS`, to `DATA_ENDPOINTS` in `app/api/devices.py`, and to the dashboard's tabs. `show interfaces trunk` has no TextFSM template and is parsed by `collector.parse_interfaces_trunk`.
+- Only show commands are ever sent (`collector._show` refuses anything else). Never add a command that enters configuration mode.
 - Config text logic lives in `app/engine/config_diff.py`: `normalize_config` drops lines that change without a config change (banner, byte count, timestamps), `config_hash` hashes the normalised text, `diff_configs` returns a unified diff plus added/removed counts. Backups store the raw text and the normalised hash. Diffs are redacted after diffing, so a changed secret still shows as a changed line. Changing the normalisation rules needs a migration that re-hashes existing rows (see `migrations/versions/0002_*`).
 - Diff endpoints: `GET /devices/{id}/configs/diff?from_id=&to_id=` and `/configs/diff/latest`. They are declared before `/configs/{backup_id}` on purpose (route order).
 - The lab switch runs in VTP server mode, so VLAN definitions are in `vlan.dat`, not in the running config: creating a VLAN does not show in a config diff, only the interface lines that use it.
@@ -96,7 +115,7 @@ Every change to `app/db/models.py` needs a migration; `tests/test_db.py` fails i
 ## After changing backend code
 
 - A running backend keeps the code it started with. After any backend change, the user's API must be restarted (or be running with `--reload`) before the feature is tested, and `alembic upgrade head` must have been run. Check the running process, not just the tests: `curl -s http://127.0.0.1:8000/health` shows `api_revision`, and `/openapi.json` lists the routes it really serves. On 2026-10-08 a backend started before the config-diff feature produced three "bugs" at once: 422 "valid integer" on `/configs/diff`, wrong "no change" badges, and duplicate backups with old-style hashes.
-- `API_REVISION` in `backend/app/api/health.py` and `REQUIRED_API_REVISION` in `frontend/src/api.ts` must be equal (currently 3). Add 1 to both whenever an endpoint or response field the dashboard uses is added or changed. The dashboard shows a warning banner when the backend reports a lower number.
+- `API_REVISION` in `backend/app/api/health.py` and `REQUIRED_API_REVISION` in `frontend/src/api.ts` must be equal (currently 4). Add 1 to both whenever an endpoint or response field the dashboard uses is added or changed. The dashboard shows a warning banner when the backend reports a lower number.
 - The API refuses to start when the database is not at the newest migration (`database.migration_status`), with a message to run `alembic upgrade head`.
 - Never apply a migration that changes how stored data is interpreted while an old backend is still running against the same database: the old code then writes inconsistent rows (migration `0003` repairs the config backups this produced).
 
@@ -118,5 +137,5 @@ Every change to `app/db/models.py` needs a migration; `tests/test_db.py` fails i
 
 ## Status
 
-- Done: foundation, settings loading (`app/core/config.py`, pydantic-settings), device collector (`app/engine/collector.py`, Netmiko + TextFSM), ARP discovery (`app/engine/discovery.py`, Scapy, offline OUI vendor lookup), Nmap service scanner (`app/engine/scanner.py`, XML parsed with ElementTree), device classifier (`app/engine/classifier.py`: scan-based guesses, confirmation by login, virtualisation as a separate attribute), database models and Alembic migrations, scan service with change detection between scans, config backups with normalised hashing and diffs, FastAPI backend (scans in the background, devices, collection, CORS), React dashboard (overview, devices, device detail with collection, scan history). Backend and frontend both have tests that need no lab.
-- Not built yet: authentication, deployment on the Pi.
+- Done: foundation, settings loading (`app/core/config.py`, pydantic-settings), device collector (`app/engine/collector.py`, Netmiko + TextFSM), ARP discovery (`app/engine/discovery.py`, Scapy, offline OUI vendor lookup), Nmap service scanner (`app/engine/scanner.py`, XML parsed with ElementTree), device classifier (`app/engine/classifier.py`: scan-based guesses, confirmation by login, virtualisation as a separate attribute), database models and Alembic migrations, scan service with change detection between scans, config backups with normalised hashing and diffs, collection from all routers and switches in parallel (routes, OSPF, STP, trunks, CDP, ARP), FastAPI backend (scans in the background, devices, collection, CORS), React dashboard (overview, devices, device detail with collection, scan history). Backend and frontend both have tests that need no lab.
+- Not built yet: topology from the collected data, comparing collection runs, authentication, deployment on the Pi.

@@ -9,7 +9,9 @@ from sqlalchemy.orm import Session
 from app.api import schemas
 from app.api.deps import get_session
 from app.api.scans import result_schema
+from app.api.collections import collected_summary
 from app.core.config import Settings, get_settings
+from app.core.credentials import credentials_for
 from app.db import models
 from app.engine import classifier, collector, config_diff, discovery
 from app.services import collection_service
@@ -150,91 +152,87 @@ def collect_device(
         raise HTTPException(status.HTTP_403_FORBIDDEN, str(exc)) from exc
 
     try:
-        conn = collector.connect(
-            host=host,
-            username=settings.lab_switch_username,
-            password=settings.lab_switch_password.get_secret_value(),
+        row, backup, created = collection_service.collect_device(
+            session, device, credentials_for(host, settings)
         )
-        try:
-            version = collector.get_version(conn)
-            interfaces = collector.get_interfaces(conn)
-            vlans = collector.get_vlans(conn)
-            mac_table = collector.get_mac_table(conn)
-            config = collector.get_running_config(conn)
-        finally:
-            conn.disconnect()
     except collector.DeviceTimeoutError as exc:
         raise HTTPException(status.HTTP_504_GATEWAY_TIMEOUT, str(exc)) from exc
     except collector.CollectorError as exc:
         # 502: this API worked, but the device behind it did not cooperate.
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
 
-    collection = collection_service.save_collection(
-        session, host, interfaces, vlans, mac_table, device=device, version=version
-    )
-    collection_service.confirm_device_type(session, device, version, vlans)
-    backup, created = collection_service.save_config_backup(session, host, config, device=device)
     previous = collection_service.latest_backup(session, host, before_id=backup.id)
-
-    def count(data) -> int | None:
-        return len(data) if isinstance(data, list) else None
-
     return schemas.CollectResult(
         device_id=device.id,
         host=host,
         device_type=device.device_type,
         type_reason=device.type_reason,
-        collection_id=collection.id,
-        collected_at=collection.collected_at,
-        interfaces=count(interfaces),
-        vlans=count(vlans),
-        mac_table=count(mac_table),
+        collection_id=row.id,
+        collected_at=row.collected_at,
+        collected=collected_summary(row.data),
+        note=row.note,
         config_backup=_backup_schema(backup, previous),
         first_backup=created and previous is None,
-        config_changed=created and previous is not None,
+        config_changed=bool(row.config_changed),
     )
 
 
-def _latest_collected(session: Session, device: models.Device, field: str) -> schemas.CollectedData:
-    collection = session.scalars(
+# URL name -> key in DeviceCollection.data, with the command it comes from.
+DATA_ENDPOINTS = {
+    "interfaces": ("interfaces", "show ip interface brief"),
+    "cdp-neighbors": ("cdp_neighbors", "show cdp neighbors detail"),
+    "arp": ("arp", "show ip arp"),
+    "vlans": ("vlans", "show vlan brief"),
+    "trunks": ("trunks", "show interfaces trunk"),
+    "spanning-tree": ("spanning_tree", "show spanning-tree"),
+    "mac-table": ("mac_table", "show mac address-table"),
+    "routes": ("routes", "show ip route"),
+    "ospf-neighbors": ("ospf_neighbors", "show ip ospf neighbor"),
+    "ospf-interfaces": ("ospf_interfaces", "show ip ospf interface brief"),
+}
+
+
+def _latest_collected(session: Session, device: models.Device, key: str) -> schemas.CollectedData:
+    """The newest successful collection of this device that has this kind of data."""
+    collections = session.scalars(
         select(models.DeviceCollection)
-        .where(models.DeviceCollection.device_id == device.id)
+        .where(
+            models.DeviceCollection.device_id == device.id,
+            models.DeviceCollection.status == models.DeviceCollection.STATUS_SUCCESS,
+        )
         .order_by(models.DeviceCollection.id.desc())
-        .limit(1)
-    ).first()
-    if collection is None:
+        .limit(20)
+    ).all()
+    if not collections:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND,
             f"Nothing has been collected from device {device.id} yet. "
             f"POST /devices/{device.id}/collect first.",
         )
-    return schemas.CollectedData(
-        device_id=device.id, collected_at=collection.collected_at, data=getattr(collection, field)
+    for collection in collections:
+        if key in collection.data:
+            return schemas.CollectedData(
+                device_id=device.id, collected_at=collection.collected_at, data=collection.data[key]
+            )
+    raise HTTPException(
+        status.HTTP_404_NOT_FOUND,
+        f"This data is not collected from a {device.device_type} (device {device.id}).",
     )
 
 
-@router.get("/{device_id}/interfaces", response_model=schemas.CollectedData)
-def device_interfaces(
-    device: models.Device = Depends(get_device), session: Session = Depends(get_session)
-):
-    """Latest 'show ip interface brief' collected from the device."""
-    return _latest_collected(session, device, "interfaces")
+def _add_data_endpoint(url_name: str, key: str, command: str) -> None:
+    def endpoint(
+        device: models.Device = Depends(get_device), session: Session = Depends(get_session)
+    ):
+        return _latest_collected(session, device, key)
+
+    endpoint.__name__ = f"device_{key}"
+    endpoint.__doc__ = f"Latest '{command}' collected from the device."
+    router.get(f"/{{device_id}}/{url_name}", response_model=schemas.CollectedData)(endpoint)
 
 
-@router.get("/{device_id}/vlans", response_model=schemas.CollectedData)
-def device_vlans(
-    device: models.Device = Depends(get_device), session: Session = Depends(get_session)
-):
-    """Latest 'show vlan brief' collected from the device."""
-    return _latest_collected(session, device, "vlans")
-
-
-@router.get("/{device_id}/mac-table", response_model=schemas.CollectedData)
-def device_mac_table(
-    device: models.Device = Depends(get_device), session: Session = Depends(get_session)
-):
-    """Latest 'show mac address-table' collected from the device."""
-    return _latest_collected(session, device, "mac_table")
+for _url_name, (_key, _command) in DATA_ENDPOINTS.items():
+    _add_data_endpoint(_url_name, _key, _command)
 
 
 @router.get("/{device_id}/configs", response_model=list[schemas.ConfigBackup])

@@ -9,6 +9,7 @@ import pytest
 from app.api.health import API_REVISION
 from app.db.models import ConfigBackup, Device, Scan
 from app.engine import collector, discovery, scanner
+from tests.lab import LAB, fake_lab
 from tests.sample_configs import BASE, NEW_SECRET, NEW_VLAN, SAME_LATER
 
 LAB = IPv4Network("192.168.17.0/24")
@@ -27,30 +28,6 @@ SWITCH = ("192.168.17.10", "aa:bb:cc:00:01:00", [SSH])
 HOST_PC = ("192.168.17.1", "00:50:56:c0:00:01", [])
 VM = ("192.168.17.129", "52:54:00:12:34:56", [])
 
-INTERFACES = [{"interface": "Vlan10", "ip_address": "192.168.17.10", "status": "up", "proto": "up"}]
-VLANS = [
-    {"vlan_id": "1", "vlan_name": "default", "status": "active", "interfaces": []},
-    {"vlan_id": "10", "vlan_name": "VLAN0010", "status": "active", "interfaces": ["Et0/0"]},
-]
-RAW_MAC_TABLE = "Mac Address Table (TextFSM could not parse this)"
-IOL_VERSION = [
-    {
-        "software_image": "X86_64BI_LINUX_L2-ADVENTERPRISEK9-M",
-        "version": "17.18.2",
-        "hostname": "SW1",
-        "running_image": "/binary.iol",
-        "hardware": [],
-    }
-]
-IOSV_VERSION = [
-    {
-        "software_image": "VIOS-ADVENTERPRISEK9-M",
-        "version": "15.9(3)M9",
-        "hostname": "R1",
-        "running_image": "/vios-adventerprisek9-m",
-        "hardware": ["IOSv"],
-    }
-]
 IOSV_ROUTER = ("192.168.17.3", "52:54:00:12:33:67", [SSH])
 ALPINE = (
     "192.168.17.129",
@@ -58,6 +35,16 @@ ALPINE = (
     [{**SSH, "product": "OpenSSH", "version": "10.2", "os_type": ""}],
 )
 CONFIG = "hostname SW1\nenable secret 9 $9$not-a-real-hash\nend"
+SWITCH_KINDS = {
+    "version": 1,
+    "interfaces": 5,
+    "cdp_neighbors": 3,
+    "arp": 7,
+    "vlans": 8,
+    "trunks": 3,
+    "spanning_tree": 7,
+    "mac_table": 5,
+}
 
 
 @pytest.fixture(autouse=True)
@@ -94,20 +81,9 @@ def switch_id(client):
 
 @pytest.fixture
 def switch_ssh():
-    """A fake Netmiko connection that answers the collector's show commands."""
-    outputs = {
-        "show version": IOL_VERSION,
-        "show ip interface brief": INTERFACES,
-        "show vlan brief": VLANS,
-        "show mac address-table": RAW_MAC_TABLE,
-        "show running-config": CONFIG,
-    }
-    conn = MagicMock()
-    conn.host = "192.168.17.10"
-    conn.send_command.side_effect = lambda command, use_textfsm: outputs[command]
-    conn.outputs = outputs  # tests change entries to change what the "switch" returns
-    with patch.object(collector, "connect", return_value=conn) as connect:
-        yield connect, conn
+    """The fake lab switch SW1 behind collector.connect: (connect mock, device)."""
+    with fake_lab("SW1", "R1") as lab:
+        yield lab.connect_mock, lab["SW1"]
 
 
 # --- GET /health -----------------------------------------------------------
@@ -124,6 +100,7 @@ def test_health(client):
         "database": True,
         "raw_sockets": False,
         "scan_running": False,
+        "collection_running": False,
     }
 
 
@@ -312,6 +289,7 @@ def test_unknown_device_is_404(client):
 
 def test_collect_logs_in_with_env_credentials_and_stores_everything(client, switch_id, switch_ssh):
     connect, conn = switch_ssh
+    conn.outputs["show running-config"] = CONFIG
 
     response = client.post(f"/devices/{switch_id}/collect")
 
@@ -319,21 +297,18 @@ def test_collect_logs_in_with_env_credentials_and_stores_everything(client, swit
     body = response.json()
     assert body["device_id"] == switch_id
     assert body["host"] == "192.168.17.10"
-    assert body["interfaces"] == 1
-    assert body["vlans"] == 2
-    assert body["mac_table"] is None  # stored as raw text
+    assert body["collected"] == SWITCH_KINDS
+    assert body["note"] is None
     # A first backup is new, not "changed": there is nothing to compare with.
     assert body["first_backup"] is True
     assert body["config_changed"] is False
     assert body["config_backup"]["lines"] == 3
     assert body["config_backup"]["changed"] is None
-    connect.assert_called_once_with(
-        host="192.168.17.10", username="test-user", password="test-password"
-    )
-    conn.disconnect.assert_called_once()
-    # Only read-only show commands went to the device.
-    sent = [call.args[0] for call in conn.send_command.call_args_list]
-    assert sent and all(command.startswith("show ") for command in sent)
+    connect.assert_called_once_with("192.168.17.10", "test-user", "test-password", timeout=10)
+    assert conn.disconnected == 1
+    # Only read-only show commands went to the device, and no router commands.
+    assert conn.sent and all(command.startswith("show ") for command in conn.sent)
+    assert "show ip route" not in conn.sent
 
 
 def test_collected_data_can_be_read_back(client, switch_id, switch_ssh):
@@ -341,10 +316,24 @@ def test_collected_data_can_be_read_back(client, switch_id, switch_ssh):
 
     interfaces = client.get(f"/devices/{switch_id}/interfaces").json()
     assert interfaces["device_id"] == switch_id
-    assert interfaces["data"] == INTERFACES
     assert interfaces["collected_at"]
-    assert client.get(f"/devices/{switch_id}/vlans").json()["data"] == VLANS
-    assert client.get(f"/devices/{switch_id}/mac-table").json()["data"] == RAW_MAC_TABLE
+    assert {"interface": "Vlan10", "ip_address": "192.168.17.10", "status": "up", "proto": "up"} in interfaces["data"]
+    vlans = client.get(f"/devices/{switch_id}/vlans").json()["data"]
+    assert {"20": "USERS", "30": "SERVERS"}.items() <= {v["vlan_id"]: v["vlan_name"] for v in vlans}.items()
+    assert len(client.get(f"/devices/{switch_id}/mac-table").json()["data"]) == 5
+
+
+def test_unparsed_output_is_stored_and_served_as_raw_text(client, switch_id, switch_ssh):
+    _, conn = switch_ssh
+    conn.outputs["show mac address-table"] = "Mac Address Table (TextFSM could not parse this)"
+
+    body = client.post(f"/devices/{switch_id}/collect").json()
+
+    assert body["collected"]["mac_table"] is None
+    assert (
+        client.get(f"/devices/{switch_id}/mac-table").json()["data"]
+        == "Mac Address Table (TextFSM could not parse this)"
+    )
 
 
 def test_collected_data_is_404_before_any_collection(client, switch_id):
@@ -358,6 +347,8 @@ def test_collected_data_is_404_before_any_collection(client, switch_id):
 def test_identical_config_is_backed_up_once_and_its_text_is_never_exposed(
     client, switch_id, switch_ssh
 ):
+    _, conn = switch_ssh
+    conn.outputs["show running-config"] = CONFIG
     client.post(f"/devices/{switch_id}/collect")
     second = client.post(f"/devices/{switch_id}/collect")
 
@@ -371,6 +362,7 @@ def test_identical_config_is_backed_up_once_and_its_text_is_never_exposed(
 
 
 def test_config_text_is_served_with_its_secrets_masked(client, switch_id, switch_ssh):
+    switch_ssh[1].outputs["show running-config"] = CONFIG
     client.post(f"/devices/{switch_id}/collect")
     backup_id = client.get(f"/devices/{switch_id}/configs").json()[0]["id"]
 
@@ -431,9 +423,6 @@ def test_collect_confirms_the_switch_and_later_scans_keep_it(client, switch_id, 
 
 
 def test_collect_confirms_an_iosv_router_as_a_router(client, switch_ssh):
-    _, conn = switch_ssh
-    conn.outputs["show version"] = IOSV_VERSION
-    conn.outputs["show vlan brief"] = "% Invalid input detected at '^' marker."
     scan(client, IOSV_ROUTER)
     router = client.get("/devices").json()[0]
     assert router["device_type"] == "network device"
@@ -441,8 +430,19 @@ def test_collect_confirms_an_iosv_router_as_a_router(client, switch_ssh):
     response = client.post(f"/devices/{router['id']}/collect")
 
     assert response.status_code == 200
-    assert response.json()["device_type"] == "router"
-    assert response.json()["vlans"] is None  # stored as the raw text the router returned
+    body = response.json()
+    assert body["device_type"] == "router"
+    # Router data only: no VLAN table, trunks, spanning tree or MAC table.
+    assert body["collected"] == {
+        "version": 1,
+        "interfaces": 6,
+        "cdp_neighbors": 2,
+        "arp": 7,
+        "routes": 10,
+        "ospf_neighbors": 1,
+        "ospf_interfaces": 3,
+    }
+    assert "legacy SSH (ssh-rsa" in body["note"]
     device = client.get(f"/devices/{router['id']}").json()
     assert (device["device_type"], device["virtualization"]) == ("router", "QEMU/KVM")
     assert "VIOS-ADVENTERPRISEK9-M" in device["type_reason"]
@@ -674,12 +674,15 @@ def test_collect_reports_which_connection_error_happened(client, session, switch
 
 def test_collect_disconnects_when_a_command_fails(client, switch_id, switch_ssh):
     _, conn = switch_ssh
-    conn.send_command.side_effect = collector.ReadTimeout()
+    conn.outputs["show ip arp"] = collector.ReadTimeout()
 
     response = client.post(f"/devices/{switch_id}/collect")
 
     assert response.status_code == 504
-    conn.disconnect.assert_called_once()
+    assert "show ip arp" in response.json()["detail"]
+    assert conn.disconnected == 1
+    # Nothing half-collected is stored.
+    assert client.get(f"/devices/{switch_id}/interfaces").status_code == 404
 
 
 # --- CORS ------------------------------------------------------------------

@@ -7,7 +7,16 @@ PostgreSQL. Schema changes go through Alembic migrations (backend/migrations).
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, ForeignKey, String, Text, TypeDecorator, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    String,
+    Text,
+    TypeDecorator,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -111,27 +120,59 @@ class ScanResult(Base):
     device: Mapped[Device] = relationship(back_populates="results")
 
 
-class DeviceCollection(Base):
-    """Structured data the Netmiko collector read from a device at one moment.
+class NetworkCollection(Base):
+    """One run of "collect from every network device"."""
 
-    Each value is the collector's output as-is: a list of dicts when TextFSM
-    parsed it, or the raw CLI text when it could not.
+    __tablename__ = "network_collections"
+
+    STATUS_RUNNING = "running"
+    STATUS_COMPLETED = "completed"
+    STATUS_FAILED = "failed"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    started_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    status: Mapped[str] = mapped_column(String(16), default=STATUS_RUNNING)
+
+    results: Mapped[list["DeviceCollection"]] = relationship(
+        back_populates="network_collection", order_by="DeviceCollection.id"
+    )
+
+
+class DeviceCollection(Base):
+    """What one collection read from one device, or why it could not.
+
+    Part of a NetworkCollection run, or on its own when a single device was
+    collected. data holds every command's output under the collector's key
+    for it ("interfaces", "routes", ...): a list of dicts when the output was
+    parsed, or the raw CLI text when it was not. One JSON document instead of
+    a column per command means a new command needs no schema change.
     """
 
     __tablename__ = "device_collections"
 
+    STATUS_PENDING = "pending"
+    STATUS_SUCCESS = "success"
+    STATUS_FAILED = "failed"
+
     id: Mapped[int] = mapped_column(primary_key=True)
+    network_collection_id: Mapped[int | None] = mapped_column(
+        ForeignKey("network_collections.id", ondelete="CASCADE"), index=True
+    )
     # Null when the device was collected by address before any scan found it.
     device_id: Mapped[int | None] = mapped_column(ForeignKey("devices.id"), index=True)
     host: Mapped[str] = mapped_column(String(255), index=True)
     collected_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
-    interfaces: Mapped[Any] = mapped_column(JSON)
-    vlans: Mapped[Any] = mapped_column(JSON)
-    mac_table: Mapped[Any] = mapped_column(JSON)
-    # "show version" output. Null for collections made before it was stored.
-    version: Mapped[Any | None] = mapped_column(JSON)
+    status: Mapped[str] = mapped_column(String(16), default=STATUS_SUCCESS)
+    error: Mapped[str | None] = mapped_column(Text)
+    note: Mapped[str | None] = mapped_column(Text)
+    data: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    config_backup_id: Mapped[int | None] = mapped_column(ForeignKey("config_backups.id"))
+    # True if this collection found a config different from the previous backup.
+    config_changed: Mapped[bool | None] = mapped_column(Boolean)
 
     device: Mapped[Device | None] = relationship()
+    network_collection: Mapped[NetworkCollection | None] = relationship(back_populates="results")
 
 
 class ConfigBackup(Base):

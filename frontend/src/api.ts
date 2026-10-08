@@ -10,7 +10,7 @@ export const API_URL: string = (
  * backend/app/api/health.py. A backend reporting a lower number (or none) is
  * running older code, usually because it was not restarted after an update.
  */
-export const REQUIRED_API_REVISION = 3
+export const REQUIRED_API_REVISION = 4
 
 export class ApiError extends Error {
   /** HTTP status code, or null when the API could not be reached at all. */
@@ -30,6 +30,7 @@ export interface Health {
   database: boolean
   raw_sockets: boolean
   scan_running: boolean
+  collection_running?: boolean
 }
 
 export interface Port {
@@ -146,9 +147,10 @@ export interface CollectResult {
   type_reason: string
   collection_id: number
   collected_at: string
-  interfaces: number | null
-  vlans: number | null
-  mac_table: number | null
+  /** Rows parsed per kind of data, or null where raw text was stored. */
+  collected: Record<string, number | null>
+  /** Something to be aware of, such as legacy SSH algorithms. */
+  note: string | null
   config_backup: ConfigBackup
   first_backup: boolean
   /** The config differs from the previous backup (false for a first backup). */
@@ -164,7 +166,50 @@ export interface CollectedData {
   data: CollectedRow[] | string
 }
 
-export type CollectedKind = 'interfaces' | 'vlans' | 'mac-table'
+/** The last part of GET /devices/{id}/<kind>. */
+export type CollectedKind =
+  | 'interfaces'
+  | 'cdp-neighbors'
+  | 'arp'
+  | 'vlans'
+  | 'trunks'
+  | 'spanning-tree'
+  | 'mac-table'
+  | 'routes'
+  | 'ospf-neighbors'
+  | 'ospf-interfaces'
+
+export type CollectionStatus = 'running' | 'completed' | 'failed'
+
+/** One device's part in a collection run. */
+export interface DeviceCollectionResult {
+  id: number
+  device_id: number | null
+  host: string
+  hostname: string | null
+  device_type: string | null
+  status: 'pending' | 'success' | 'failed'
+  error: string | null
+  note: string | null
+  collected_at: string
+  collected: Record<string, number | null>
+  config_changed: boolean | null
+}
+
+export interface NetworkCollectionSummary {
+  id: number
+  status: CollectionStatus
+  started_at: string
+  finished_at: string | null
+  device_count: number
+  succeeded: number
+  failed: number
+  pending: number
+}
+
+export interface NetworkCollectionDetail extends NetworkCollectionSummary {
+  results: DeviceCollectionResult[]
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response
@@ -208,6 +253,11 @@ export const collectDevice = (id: number) =>
   request<CollectResult>(`/devices/${id}/collect`, { method: 'POST' })
 export const getCollected = (id: number, kind: CollectedKind) =>
   request<CollectedData>(`/devices/${id}/${kind}`)
+export const getCollections = () => request<NetworkCollectionSummary[]>('/collections')
+export const getCollection = (id: number) =>
+  request<NetworkCollectionDetail>(`/collections/${id}`)
+export const startCollection = () =>
+  request<NetworkCollectionDetail>('/collections', { method: 'POST' })
 export const getConfigs = (id: number) => request<ConfigBackup[]>(`/devices/${id}/configs`)
 export const getConfig = (id: number, backupId: number) =>
   request<ConfigBackupDetail>(`/devices/${id}/configs/${backupId}`)

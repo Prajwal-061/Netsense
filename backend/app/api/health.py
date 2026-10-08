@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.api import schemas
 from app.api.deps import get_engine, get_session
 from app.db.database import is_migrated
-from app.db.models import Scan
+from app.db.models import NetworkCollection, Scan
 from app.engine import discovery
 
 router = APIRouter(tags=["health"])
@@ -17,7 +17,7 @@ router = APIRouter(tags=["health"])
 # REQUIRED_API_REVISION in frontend/src/api.ts to the same number. A
 # dashboard talking to a backend that was not restarted after an update then
 # says so, instead of failing in confusing ways.
-API_REVISION = 3
+API_REVISION = 4
 
 
 @router.get("/health", response_model=schemas.Health)
@@ -27,10 +27,16 @@ def health(engine: Engine = Depends(get_engine), session: Session = Depends(get_
     running = database and session.scalars(
         select(Scan.id).where(Scan.status == Scan.STATUS_RUNNING).limit(1)
     ).first() is not None
+    collecting = database and session.scalars(
+        select(NetworkCollection.id)
+        .where(NetworkCollection.status == NetworkCollection.STATUS_RUNNING)
+        .limit(1)
+    ).first() is not None
     return schemas.Health(
         status="ok" if database else "degraded",
         api_revision=API_REVISION,
         database=database,
         raw_sockets=discovery.can_open_raw_socket(),
         scan_running=running,
+        collection_running=collecting,
     )

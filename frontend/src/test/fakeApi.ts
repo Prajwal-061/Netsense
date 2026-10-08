@@ -8,6 +8,8 @@ import type {
   ConfigBackup,
   ConfigDiff,
   Device,
+  DeviceCollectionResult,
+  NetworkCollectionDetail,
   Health,
   Port,
   ScanDetail,
@@ -159,9 +161,8 @@ export const COLLECT_RESULT: CollectResult = {
   type_reason: "confirmed by login: show version reports software image 'X86_64BI_LINUX_L2-ADVENTERPRISEK9-M', a switch image",
   collection_id: 1,
   collected_at: '2026-10-07T19:23:35Z',
-  interfaces: 2,
-  vlans: 1,
-  mac_table: null,
+  collected: { version: 1, interfaces: 2, cdp_neighbors: 2, arp: 7, vlans: 8, trunks: 3, spanning_tree: 7, mac_table: null },
+  note: null,
   config_backup: BACKUP,
   first_backup: true,
   config_changed: false,
@@ -174,6 +175,53 @@ export const INTERFACES = {
     { interface: 'Ethernet0/0', ip_address: 'unassigned', status: 'up', proto: 'up' },
     { interface: 'Ethernet0/1', ip_address: 'unassigned', status: 'administratively down', proto: 'down' },
   ],
+}
+
+function result(
+  id: number,
+  host: string,
+  status: DeviceCollectionResult['status'],
+  extra: Partial<DeviceCollectionResult> = {},
+): DeviceCollectionResult {
+  return {
+    id,
+    device_id: id,
+    host,
+    hostname: null,
+    device_type: 'network device',
+    status,
+    error: null,
+    note: null,
+    collected_at: '2026-10-08T07:30:00Z',
+    collected: {},
+    config_changed: null,
+    ...extra,
+  }
+}
+
+/** A collection run over the lab's four devices, in three stages. */
+export function collectionRun(stage: 'started' | 'halfway' | 'finished'): NetworkCollectionDetail {
+  const r1 = { hostname: 'R1', device_type: 'router', collected: { version: 1, routes: 10, ospf_neighbors: 1 }, config_changed: false, note: 'Connected with legacy SSH (ssh-rsa host key, SHA-1): this device offers nothing stronger.' }
+  const sw1 = { hostname: 'SW1', device_type: 'switch', collected: { version: 1, vlans: 8, trunks: 3 }, config_changed: true }
+  const sw2 = { hostname: 'SW2', device_type: 'switch', collected: { version: 1, vlans: 8, trunks: 2 }, config_changed: false }
+  const r2Failed = { error: 'Authentication failed: 192.168.17.4 rejected the login.' }
+  const results = {
+    started: [result(11, '192.168.17.3', 'pending'), result(12, '192.168.17.4', 'pending'), result(13, '192.168.17.10', 'pending'), result(14, '192.168.17.11', 'pending')],
+    halfway: [result(11, '192.168.17.3', 'success', r1), result(12, '192.168.17.4', 'failed', r2Failed), result(13, '192.168.17.10', 'pending'), result(14, '192.168.17.11', 'pending')],
+    finished: [result(11, '192.168.17.3', 'success', r1), result(12, '192.168.17.4', 'failed', r2Failed), result(13, '192.168.17.10', 'success', sw1), result(14, '192.168.17.11', 'success', sw2)],
+  }[stage]
+  const count = (status: string) => results.filter((item) => item.status === status).length
+  return {
+    id: 7,
+    status: stage === 'finished' ? 'completed' : 'running',
+    started_at: '2026-10-08T07:30:00Z',
+    finished_at: stage === 'finished' ? '2026-10-08T07:30:21Z' : null,
+    device_count: results.length,
+    succeeded: count('success'),
+    failed: count('failed'),
+    pending: count('pending'),
+    results,
+  }
 }
 
 /** A reply: a JSON body (status 200), [status, body], or a function returning either. */
@@ -205,6 +253,7 @@ export function installFakeApi(overrides: Record<string, Reply> = {}): FakeApi {
       'GET /health': HEALTH,
       'GET /scans': [scan(3, 'completed'), scan(2, 'completed', { device_count: 2 }), scan(1, 'completed')],
       'GET /scans/3': SCAN_3,
+      'GET /collections': [],
       'GET /devices': DEVICES,
       ...Object.fromEntries(DEVICES.map((item) => [`GET /devices/${item.id}`, item])),
       ...overrides,

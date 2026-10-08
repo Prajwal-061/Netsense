@@ -248,3 +248,50 @@ def test_api_refuses_to_start_on_a_database_that_is_behind_the_code(tmp_path):
         with TestClient(app) as client:
             assert client.get("/openapi.json").status_code == 200
     engine.dispose()
+
+
+def test_migration_0005_moves_collected_columns_into_the_data_document(tmp_path):
+    import json
+    import sqlite3
+
+    path = tmp_path / "collections.db"
+    config = Config(BACKEND / "alembic.ini")
+    config.set_main_option("sqlalchemy.url", f"sqlite:///{path}")
+    command.upgrade(config, "0004")
+
+    interfaces = [{"interface": "Vlan10", "ip_address": "192.168.17.10"}]
+    version = [{"hostname": "SW1"}]
+    with sqlite3.connect(path) as db:
+        db.executemany(
+            "insert into device_collections (id, host, collected_at, interfaces, vlans, mac_table, version) "
+            "values (?, '192.168.17.10', '2026-10-08 06:00:00', ?, ?, ?, ?)",
+            [
+                # An old collection without show version, with a raw-text MAC table.
+                (1, json.dumps(interfaces), "[]", json.dumps("raw mac table text"), None),
+                (2, json.dumps(interfaces), json.dumps([{"vlan_id": "1"}]), "[]", json.dumps(version)),
+            ],
+        )
+
+    command.upgrade(config, "head")
+
+    with sqlite3.connect(path) as db:
+        rows = db.execute(
+            "select id, status, network_collection_id, data from device_collections order by id"
+        ).fetchall()
+        columns = [row[1] for row in db.execute("pragma table_info(device_collections)")]
+    assert not {"interfaces", "vlans", "mac_table", "version"} & set(columns)
+    assert [(row[1], row[2]) for row in rows] == [("success", None), ("success", None)]
+    assert json.loads(rows[0][3]) == {"interfaces": interfaces, "vlans": [], "mac_table": "raw mac table text"}
+    assert json.loads(rows[1][3]) == {
+        "interfaces": interfaces,
+        "vlans": [{"vlan_id": "1"}],
+        "mac_table": [],
+        "version": version,
+    }
+    command.check(config)
+
+    # And back again, for a database that has to return to the older code.
+    command.downgrade(config, "0004")
+    with sqlite3.connect(path) as db:
+        old = db.execute("select interfaces, mac_table, version from device_collections where id = 1").fetchone()
+    assert (json.loads(old[0]), json.loads(old[1]), json.loads(old[2])) == (interfaces, "raw mac table text", None)

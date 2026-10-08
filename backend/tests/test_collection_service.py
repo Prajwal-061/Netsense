@@ -46,31 +46,14 @@ def test_same_config_on_two_hosts_is_stored_for_each(session):
     assert created
 
 
-def test_backup_and_collection_link_to_the_scanned_device_at_that_address(session):
+def test_backup_links_to_the_scanned_device_at_that_address(session):
     device = Device(mac="aa:bb:cc:00:01:00", last_ip=HOST)
     session.add(device)
     session.commit()
 
     backup, _ = collection_service.save_config_backup(session, HOST, CONFIG_A)
-    collection = collection_service.save_collection(session, HOST, [], [], [])
 
     assert backup.device == device
-    assert collection.device == device
-
-
-def test_collection_keeps_structured_data_and_raw_text_fallback(session):
-    interfaces = [{"interface": "Vlan10", "ip_address": "192.168.17.10", "status": "up"}]
-    vlans = [{"vlan_id": "10", "vlan_name": "VLAN0010", "interfaces": ["Et0/0", "Et0/1"]}]
-    raw_mac_table = "Mac Address Table\n(output TextFSM could not parse)"
-
-    saved = collection_service.save_collection(session, HOST, interfaces, vlans, raw_mac_table)
-    session.expire_all()
-
-    assert saved.device is None  # no scan has found this host yet
-    assert saved.interfaces == interfaces
-    assert saved.vlans == vlans
-    assert saved.mac_table == raw_mac_table
-    assert saved.collected_at.tzinfo is not None
 
 
 IOS_CONFIG = """\

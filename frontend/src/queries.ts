@@ -58,13 +58,57 @@ export function useStartScan() {
 }
 
 /**
- * Refresh everything when a scan stops running (finished or failed).
- * Mounted once, in the layout, so it works on whichever page is open.
+ * Collection runs. Like the scan list, this polls quickly while a run is
+ * going, so per-device results appear as each device finishes.
+ */
+export function useCollections() {
+  return useQuery({
+    queryKey: ['collections'],
+    queryFn: api.getCollections,
+    refetchInterval: (query) =>
+      query.state.data?.some((run) => run.status === 'running') ? POLL_RUNNING_MS : POLL_IDLE_MS,
+  })
+}
+
+export function useCollection(id: number | undefined) {
+  return useQuery({
+    queryKey: ['collections', id],
+    queryFn: () => api.getCollection(id!),
+    enabled: id !== undefined,
+    refetchInterval: (query) => (query.state.data?.status === 'running' ? POLL_RUNNING_MS : false),
+  })
+}
+
+export function useStartCollection() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: api.startCollection,
+    onSuccess: (run) => {
+      // Show the new run and its pending devices at once; both queries then
+      // see a running collection and poll quickly.
+      queryClient.setQueryData<api.NetworkCollectionDetail>(['collections', run.id], run)
+      queryClient.setQueryData<api.NetworkCollectionSummary[]>(['collections'], (runs) => [
+        run,
+        ...(runs ?? []).filter((other) => other.id !== run.id),
+      ])
+    },
+    onError: () => {
+      void queryClient.invalidateQueries({ queryKey: ['collections'], exact: true })
+    },
+  })
+}
+
+/**
+ * Refresh everything when a scan or a collection stops running (finished or
+ * failed). Mounted once, in the layout, so it works on whichever page is open.
  */
 export function useRefreshWhenScanFinishes() {
   const queryClient = useQueryClient()
   const { data: scans } = useScans()
-  const running = scans?.some((scan) => scan.status === 'running') ?? false
+  const { data: collections } = useCollections()
+  const running =
+    (scans?.some((scan) => scan.status === 'running') ?? false) ||
+    (collections?.some((run) => run.status === 'running') ?? false)
   const wasRunning = useRef(false)
 
   useEffect(() => {

@@ -1,4 +1,7 @@
 netmiko
+# Paramiko 4.0 removed SHA-1 key exchange and ssh-rsa host keys. Cisco IOSv (IOS 15.x)
+# routers offer nothing else, so 3.x is the newest line that can log in to them.
+paramiko>=3.5,<4
 pydantic-settings
 pytest
 scapy

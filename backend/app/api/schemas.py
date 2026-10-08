@@ -18,6 +18,7 @@ class Health(BaseModel):
         "revision it was built for, to detect a backend that needs restarting."
     )
     database: bool = Field(description="The database is reachable and migrated.")
+    collection_running: bool
     raw_sockets: bool = Field(
         description="This process may open raw sockets, which ARP scans need "
         "(it runs as root or has CAP_NET_RAW)."
@@ -164,9 +165,11 @@ class CollectResult(BaseModel):
     type_reason: str
     collection_id: int
     collected_at: datetime
-    interfaces: int | None = Field(description="Entries parsed, or null if stored as raw text.")
-    vlans: int | None
-    mac_table: int | None
+    collected: dict[str, int | None] = Field(
+        description="What was read, by kind: the number of rows parsed, or null if the "
+        "output was stored as raw text."
+    )
+    note: str | None = Field(description="Something to be aware of, e.g. legacy SSH algorithms.")
     config_backup: ConfigBackup = Field(
         description="The backup that now holds the device's current config."
     )
@@ -175,6 +178,37 @@ class CollectResult(BaseModel):
         description="True if the config differs from the previous backup, so a new "
         "backup was stored. False if unchanged, and for a first backup."
     )
+
+
+class DeviceCollectionResult(BaseModel):
+    """One device's part in a collection run."""
+
+    id: int
+    device_id: int | None
+    host: str
+    hostname: str | None = Field(description="The device's own name, once it has been read.")
+    device_type: str | None
+    status: str = Field(description="pending, success or failed")
+    error: str | None
+    note: str | None
+    collected_at: datetime
+    collected: dict[str, int | None]
+    config_changed: bool | None
+
+
+class NetworkCollectionSummary(BaseModel):
+    id: int
+    status: str = Field(description="running, completed or failed")
+    started_at: datetime
+    finished_at: datetime | None
+    device_count: int
+    succeeded: int
+    failed: int
+    pending: int
+
+
+class NetworkCollectionDetail(NetworkCollectionSummary):
+    results: list[DeviceCollectionResult]
 
 
 class CollectedData(BaseModel):

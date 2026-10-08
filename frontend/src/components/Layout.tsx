@@ -1,12 +1,13 @@
 import { Link, NavLink, Outlet } from 'react-router-dom'
 import { REQUIRED_API_REVISION } from '../api'
-import { useHealth, useRefreshWhenScanFinishes, useScans } from '../queries'
+import { useCollections, useHealth, useRefreshWhenScanFinishes, useScans } from '../queries'
 import { ErrorBox, Spinner } from './ui'
 
 const NAV = [
   { to: '/', label: 'Overview', end: true },
   { to: '/devices', label: 'Devices', end: false },
   { to: '/scans', label: 'Scans', end: false },
+  { to: '/collections', label: 'Collections', end: false },
 ]
 
 export default function Layout() {
@@ -14,6 +15,8 @@ export default function Layout() {
   const health = useHealth()
   const { data: scans } = useScans()
   const running = scans?.find((scan) => scan.status === 'running')
+  const { data: collections } = useCollections()
+  const collecting = collections?.find((run) => run.status === 'running')
   const backendRevision = health.data ? (health.data.api_revision ?? 0) : undefined
   const backendOutdated = backendRevision !== undefined && backendRevision < REQUIRED_API_REVISION
 
@@ -46,6 +49,12 @@ export default function Layout() {
               <Link to={`/scans/${running.id}`} className="flex items-center gap-1.5 text-sky-300 hover:underline">
                 <Spinner className="h-3 w-3" />
                 Scan #{running.id} running
+              </Link>
+            )}
+            {collecting && (
+              <Link to="/collections" className="flex items-center gap-1.5 text-sky-300 hover:underline">
+                <Spinner className="h-3 w-3" />
+                Collecting {collecting.device_count - collecting.pending}/{collecting.device_count}
               </Link>
             )}
             <span className="flex items-center gap-1.5 text-slate-300">

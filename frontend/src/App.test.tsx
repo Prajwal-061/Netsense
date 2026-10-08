@@ -11,6 +11,7 @@ import {
   BACKUP,
   BACKUP_2,
   COLLECT_RESULT,
+  collectionRun,
   DEVICES,
   DIFF_1_TO_2,
   Failure,
@@ -20,6 +21,7 @@ import {
   ROUTER,
   scan,
   SCAN_3,
+  SWITCH as SWITCH_DEVICE,
 } from './test/fakeApi'
 
 function open(path: string) {
@@ -206,7 +208,133 @@ test('device page shows virtualization and whether the type is a guess or confir
   expect(screen.queryByText('guess from scan')).not.toBeInTheDocument()
   // A confirmed router keeps its collect button and tabs.
   expect(screen.getByRole('button', { name: 'Collect from device' })).toBeInTheDocument()
-  expect(screen.getAllByRole('tab')).toHaveLength(4)
+  // Router tabs, and none of the switch ones.
+  const tabs = screen.getAllByRole('tab').map((tab) => tab.textContent)
+  expect(tabs).toEqual(['Interfaces', 'CDP neighbors', 'ARP', 'Routing table', 'OSPF neighbors', 'OSPF interfaces', 'Config backups'])
+})
+
+test('router tabs show OSPF neighbours and the routing table from the API', async () => {
+  const api = installFakeApi({
+    'GET /devices/5': { ...ROUTER, device_type: 'router', type_source: 'collected' },
+    'GET /devices/5/ospf-neighbors': {
+      device_id: 5,
+      collected_at: '2026-10-08T07:30:00Z',
+      data: [{ neighbor_id: '2.2.2.2', priority: '1', state: 'FULL/DR', dead_time: '00:00:38', ip_address: '10.0.12.2', interface: 'GigabitEthernet0/2' }],
+    },
+    'GET /devices/5/routes': {
+      device_id: 5,
+      collected_at: '2026-10-08T07:30:00Z',
+      data: [{ protocol: 'O', network: '10.2.1.1', prefix_length: '32', nexthop_ip: '10.0.12.2', nexthop_if: 'GigabitEthernet0/2' }],
+    },
+  })
+  const user = open('/devices/5')
+
+  await user.click(await screen.findByRole('tab', { name: 'OSPF neighbors' }))
+  expect(await screen.findByRole('cell', { name: '2.2.2.2' })).toBeInTheDocument()
+  expect(screen.getByRole('cell', { name: 'FULL/DR' })).toHaveClass('text-emerald-700')
+
+  await user.click(screen.getByRole('tab', { name: 'Routing table' }))
+  expect(await screen.findByRole('cell', { name: '10.2.1.1' })).toBeInTheDocument()
+  expect(api.calls).toContain('GET /devices/5/routes')
+  expect(screen.queryByRole('tab', { name: 'Trunks' })).not.toBeInTheDocument()
+})
+
+test('switch tabs show trunks and spanning tree, with blocked ports in red', async () => {
+  installFakeApi({
+    'GET /devices/2': { ...SWITCH_DEVICE, device_type: 'switch', type_source: 'collected' },
+    'GET /devices/2/trunks': {
+      device_id: 2,
+      collected_at: '2026-10-08T07:30:00Z',
+      data: [
+        { interface: 'Et0/1', mode: 'on', encapsulation: '802.1q', status: 'trunking', native_vlan: '1', allowed_vlans: '20,30', active_vlans: '20,30', forwarding_vlans: '20,30' },
+        { interface: 'Et0/2', mode: 'on', encapsulation: '802.1q', status: 'trunking', native_vlan: '1', allowed_vlans: '20,30', active_vlans: '20,30', forwarding_vlans: 'none' },
+      ],
+    },
+    'GET /devices/2/spanning-tree': {
+      device_id: 2,
+      collected_at: '2026-10-08T07:30:00Z',
+      data: [
+        { vlan_id: '20', interface: 'Et0/1', role: 'Root', status: 'FWD', cost: '100' },
+        { vlan_id: '20', interface: 'Et0/2', role: 'Altn', status: 'BLK', cost: '100' },
+      ],
+    },
+  })
+  const user = open('/devices/2')
+
+  const tabs = (await screen.findAllByRole('tab')).map((tab) => tab.textContent)
+  expect(tabs).toEqual(['Interfaces', 'CDP neighbors', 'ARP', 'VLANs', 'Trunks', 'Spanning tree', 'MAC table', 'Config backups'])
+
+  await user.click(screen.getByRole('tab', { name: 'Trunks' }))
+  expect(await screen.findByRole('cell', { name: 'none' })).toHaveClass('text-red-700')
+  await user.click(screen.getByRole('tab', { name: 'Spanning tree' }))
+  expect(await screen.findByRole('cell', { name: 'BLK' })).toHaveClass('text-red-700')
+  expect(screen.getByRole('cell', { name: 'FWD' })).toHaveClass('text-emerald-700')
+})
+
+// --- Collections -----------------------------------------------------------
+
+test('collect from all devices shows each device as it finishes, including a failure', async () => {
+  const api = installFakeApi({
+    // Like the real server: from the moment of the POST, the run exists.
+    'POST /collections': () => {
+      api.routes['GET /collections'] = [collectionRun('started')]
+      api.routes['GET /collections/7'] = collectionRun('started')
+      return collectionRun('started')
+    },
+  })
+  const user = open('/collections')
+
+  expect(await screen.findByText('No collection has been run yet.')).toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: 'Collect from all devices' }))
+
+  // Straight away: all four devices listed as being collected.
+  expect(await screen.findByText('Collection #7 is running')).toBeInTheDocument()
+  expect(screen.getByText('0 of 4 devices done')).toBeInTheDocument()
+  expect(await screen.findAllByText('collecting')).toHaveLength(4)
+  expect(screen.queryByRole('button', { name: 'Collect from all devices' })).not.toBeInTheDocument()
+
+  // Two devices have answered: one succeeded, one failed. The others go on.
+  api.routes['GET /collections'] = [collectionRun('halfway')]
+  api.routes['GET /collections/7'] = collectionRun('halfway')
+  expect(await screen.findByText(/2 of 4 devices done/, {}, { timeout: 6000 })).toHaveTextContent('(1 failed)')
+  expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '2')
+  expect(screen.getAllByText('collecting')).toHaveLength(2)
+  const r2 = screen.getByText('192.168.17.4').closest('tr')!
+  expect(within(r2).getByText('failed')).toBeInTheDocument()
+  expect(within(r2).getByText('Authentication failed: 192.168.17.4 rejected the login.')).toBeInTheDocument()
+  const r1 = screen.getByText('R1').closest('tr')!
+  expect(within(r1).getByText('success')).toBeInTheDocument()
+  expect(within(r1).getByText('router')).toBeInTheDocument()
+  expect(within(r1).getByText(/legacy SSH/)).toBeInTheDocument()
+
+  // Finished: the button is back and everything else is refreshed.
+  const devicesFetched = api.calls.filter((call) => call === 'GET /devices').length
+  api.routes['GET /collections'] = [collectionRun('finished')]
+  api.routes['GET /collections/7'] = collectionRun('finished')
+  expect(await screen.findByRole('button', { name: 'Collect from all devices' }, { timeout: 6000 })).toBeInTheDocument()
+  // The list and the run's details are fetched separately; wait for both.
+  await waitFor(() => expect(screen.queryAllByText('collecting')).toHaveLength(0), { timeout: 6000 })
+  const sw1 = screen.getByText('SW1').closest('tr')!
+  expect(within(sw1).getByText('changed')).toBeInTheDocument()
+  expect(within(sw1).getByText('3 kinds of data')).toHaveAttribute('title', expect.stringContaining('trunks: 3'))
+  const history = within((await card('History')).getByRole('table'))
+  expect(history.getByText('completed')).toBeInTheDocument()
+  expect(devicesFetched).toBe(0) // this page does not list devices itself
+}, 20_000)
+
+test('starting a collection with no network devices or one already running is explained', async () => {
+  const api = installFakeApi({
+    'POST /collections': new Failure(404, 'No device is classified as a router, switch or network device yet. Run a scan first; devices are recognised by their SSH banner.'),
+  })
+  const user = open('/collections')
+
+  await user.click(await screen.findByRole('button', { name: 'Collect from all devices' }))
+  expect(await screen.findByText(/Run a scan first/)).toBeInTheDocument()
+  expect(screen.queryByText('Request failed')).not.toBeInTheDocument()
+
+  api.routes['POST /collections'] = new Failure(409, 'Collection #7 is still running (started 2026-10-08 07:30 UTC).')
+  await user.click(screen.getByRole('button', { name: 'Collect from all devices' }))
+  expect(await screen.findByText(/A collection is already running/)).toHaveTextContent('Collection #7 is still running')
 })
 
 test('network device: collect, then interfaces and the config backup are shown', async () => {
@@ -224,7 +352,7 @@ test('network device: collect, then interfaces and the config backup are shown',
   api.routes['GET /devices/2/configs/1'] = { ...BACKUP, config: 'hostname SW1\nenable secret <redacted>\nend' }
   await user.click(screen.getByRole('button', { name: 'Collect from device' }))
 
-  expect(await screen.findByText(/Collected 2 interfaces, 1 VLAN and the MAC table entries as raw text/)).toBeInTheDocument()
+  expect(await screen.findByText(/Collected 8 kinds of data\. Confirmed as a switch\./)).toBeInTheDocument()
   expect(await screen.findByRole('cell', { name: 'Ethernet0/1' })).toBeInTheDocument()
   expect(screen.getByRole('cell', { name: 'administratively down' })).toHaveClass('text-red-700')
   expect(screen.getAllByRole('cell', { name: 'up' })[0]).toHaveClass('text-emerald-700')

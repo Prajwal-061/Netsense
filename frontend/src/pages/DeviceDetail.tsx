@@ -189,17 +189,36 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
 
 type Tab = CollectedKind | 'configs'
 
-const TABS: { id: Tab; label: string }[] = [
+const COMMON_TABS: { id: Tab; label: string }[] = [
   { id: 'interfaces', label: 'Interfaces' },
-  { id: 'vlans', label: 'VLANs' },
-  { id: 'mac-table', label: 'MAC table' },
-  { id: 'configs', label: 'Config backups' },
+  { id: 'cdp-neighbors', label: 'CDP neighbors' },
+  { id: 'arp', label: 'ARP' },
 ]
+const SWITCH_TABS: { id: Tab; label: string }[] = [
+  { id: 'vlans', label: 'VLANs' },
+  { id: 'trunks', label: 'Trunks' },
+  { id: 'spanning-tree', label: 'Spanning tree' },
+  { id: 'mac-table', label: 'MAC table' },
+]
+const ROUTER_TABS: { id: Tab; label: string }[] = [
+  { id: 'routes', label: 'Routing table' },
+  { id: 'ospf-neighbors', label: 'OSPF neighbors' },
+  { id: 'ospf-interfaces', label: 'OSPF interfaces' },
+]
+
+/** A router and a switch are asked different things, so they get different tabs. */
+function tabsFor(deviceType: string): { id: Tab; label: string }[] {
+  const specific = deviceType === 'switch' ? SWITCH_TABS : deviceType === 'router' ? ROUTER_TABS : []
+  return [...COMMON_TABS, ...specific, { id: 'configs', label: 'Config backups' }]
+}
 
 /** Collect button and tabs. Only rendered for network devices. */
 function Collected({ device }: { device: Device }) {
-  const [tab, setTab] = useState<Tab>('interfaces')
+  const [chosenTab, setTab] = useState<Tab>('interfaces')
   const collect = useCollect(device.id)
+  const tabs = tabsFor(device.device_type)
+  // The tabs change when a collection confirms the device as a router or switch.
+  const tab = tabs.some((item) => item.id === chosenTab) ? chosenTab : 'interfaces'
 
   return (
     <Card
@@ -217,21 +236,26 @@ function Collected({ device }: { device: Device }) {
         {collect.isError && <ErrorBox error={collect.error} />}
         {collect.isSuccess && (
           <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900" role="status">
-            Collected {describeCount(collect.data.interfaces, 'interface')},{' '}
-            {describeCount(collect.data.vlans, 'VLAN')} and{' '}
-            {describeCount(collect.data.mac_table, 'MAC table entry', 'MAC table entries')}.{' '}
-            Confirmed as a {collect.data.device_type}.{' '}
+            Collected {Object.keys(collect.data.collected).length} kinds of data. Confirmed as a{' '}
+            {collect.data.device_type}.{' '}
             {collect.data.first_backup
               ? "This is the device's first config backup."
               : collect.data.config_changed
                 ? `The running config has changed since the last backup (${changeSize(collect.data.config_backup)}).`
                 : 'The running config is unchanged since the last backup.'}
+            {collect.data.note && <span className="mt-1 block text-amber-800">{collect.data.note}</span>}
+          </p>
+        )}
+        {device.device_type === 'network device' && !collect.isPending && (
+          <p className="text-xs text-slate-500">
+            Collect once to confirm whether this is a router or a switch. Routing and switching
+            tabs appear after that.
           </p>
         )}
       </div>
 
       <div className="mt-3 flex gap-1 overflow-x-auto border-b border-slate-200 px-3" role="tablist">
-        {TABS.map((item) => (
+        {tabs.map((item) => (
           <button
             key={item.id}
             type="button"
@@ -256,11 +280,6 @@ function Collected({ device }: { device: Device }) {
   )
 }
 
-function describeCount(count: number | null, singular: string, plural = `${singular}s`): string {
-  if (count === null) return `the ${plural} as raw text`
-  return `${count} ${count === 1 ? singular : plural}`
-}
-
 function NothingCollected() {
   return (
     <EmptyState>
@@ -274,7 +293,8 @@ function CollectedTab({ deviceId, kind }: { deviceId: number; kind: CollectedKin
 
   if (collected.isPending) return <Loading />
   if (collected.isError) {
-    // 404 is the API's way of saying "never collected", not a failure.
+    // 404 is the API's way of saying "never collected" (or "not collected
+    // from this kind of device"), not a failure.
     if (collected.error instanceof ApiError && collected.error.status === 404) return <NothingCollected />
     return (
       <div className="p-4">
