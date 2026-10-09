@@ -41,8 +41,8 @@ Management network 192.168.17.0/24 (out-of-band, one port per device, CDP disabl
 ## Layout
 
 ```
-backend/app/engine/   discovery, scanning, classification, device collection
-backend/app/api/      FastAPI routes (scans.py, devices.py, collections.py, health.py), schemas.py, deps.py
+backend/app/engine/   discovery, scanning, classification, device collection, topology
+backend/app/api/      FastAPI routes (scans.py, devices.py, collections.py, topology.py, health.py), schemas.py, deps.py
 backend/app/main.py   FastAPI app: CORS, startup checks, routers
 backend/app/db/       database models (models.py) and engine setup (database.py)
 backend/app/services/ glue between engine and database (scan_service.py, collection_service.py)
@@ -54,7 +54,8 @@ backend/.venv/        virtual environment (not committed)
 frontend/             React dashboard: Vite + React + TypeScript, Tailwind CSS, TanStack Query
 frontend/src/api.ts       typed API client (mirrors backend/app/api/schemas.py)
 frontend/src/queries.ts   TanStack Query hooks: all fetching, polling and cache refresh
-frontend/src/pages/       Overview, Devices, DeviceDetail, Scans, ScanDetail, Collections
+frontend/src/pages/       Overview, Devices, DeviceDetail, Scans, ScanDetail, Collections, Topology
+frontend/src/topology/    the map: flow.ts (layout and styling), DeviceNode, LinkEdge
 frontend/src/components/  shared UI; frontend/src/test/fakeApi.ts fakes the API in tests
 lab/                  CML topology and switch configs
 docs/
@@ -105,6 +106,16 @@ Every change to `app/db/models.py` needs a migration; `tests/test_db.py` fails i
 - `POST /devices/{id}/collect` sends the `.env` credentials to any device classified "network device", "router" or "switch" inside `ALLOWED_SUBNETS`. The classification comes from a banner the device controls, so restrict this to an explicit list of authorized hosts before leaving the lab.
 - Tests set fake credentials and an in-memory `DATABASE_URL` in `tests/conftest.py` before importing the app, so they never read `.env` or `netsense.db`.
 
+## Topology
+
+- `app/engine/topology.py::build_topology(collected, known_hosts, management_network)` is a pure function (dicts in, dicts out; no database, network or clock) with stable ids (`dev:<hostname>`, `host:<mac>`, `nbr:<name>`, link id from its two ends), so runs can be compared later. `collection_service.build_run_topology` gathers its inputs and stores the result in `network_collections.topology` at the end of each run; older runs get theirs computed on first `GET /topology`.
+- Rules: device links come from CDP, merged by the unordered pair of (node, interface) ends, so parallel links stay separate. A MAC on a switch port is a host unless the port is a trunk, has a CDP neighbour, or belongs to the management network. CDP neighbours that were not collected become `unknown` nodes. A device whose login failed is matched to its CDP entry by its hostname from an earlier collection, because the address CDP reports is the neighbour's address on that link, not its management address.
+- The management network is recognised from data, not configured: the interface holding the address NetSense logged in to, or for an SVI (`Vlan10`) that VLAN and its access ports. It is returned under `management`, never as links.
+- Interface names are normalised with `short_interface` (CDP says `Ethernet0/2`, trunk and STP tables say `Et0/2`), MACs with `normalize_mac`.
+- A silent host ages out of a switch's MAC table after about 5 minutes but stays in a router's ARP table for hours. Such hosts are returned in `unplaced_hosts` and listed under the map; no port is guessed for them. In the lab this regularly applies to the Alpine host.
+- A down link usually disappears from CDP within its 180 s holdtime, so "down" is rarely seen in one topology; detecting a missing link is a job for comparing runs.
+- Dashboard: `frontend/src/topology/flow.ts` (pure layout and styling, tested in `flow.test.ts`), `DeviceNode.tsx`, `LinkEdge.tsx`, `pages/Topology.tsx`, using React Flow (`@xyflow/react`). jsdom cannot lay out React Flow, so links are not drawn in page tests; `src/test/setup.ts` holds the browser-API stand-ins.
+
 ## Classification
 
 - Device type and virtualisation are separate. `discovery.lookup_virtualization(mac)` gives the platform (QEMU/KVM, VMware, ...) from the MAC prefix and is stored in `devices.virtualization`; it never decides the type. There is no "virtual" device type any more (old scan results may still show `VMware/virtual`).
@@ -115,7 +126,7 @@ Every change to `app/db/models.py` needs a migration; `tests/test_db.py` fails i
 ## After changing backend code
 
 - A running backend keeps the code it started with. After any backend change, the user's API must be restarted (or be running with `--reload`) before the feature is tested, and `alembic upgrade head` must have been run. Check the running process, not just the tests: `curl -s http://127.0.0.1:8000/health` shows `api_revision`, and `/openapi.json` lists the routes it really serves. On 2026-10-08 a backend started before the config-diff feature produced three "bugs" at once: 422 "valid integer" on `/configs/diff`, wrong "no change" badges, and duplicate backups with old-style hashes.
-- `API_REVISION` in `backend/app/api/health.py` and `REQUIRED_API_REVISION` in `frontend/src/api.ts` must be equal (currently 4). Add 1 to both whenever an endpoint or response field the dashboard uses is added or changed. The dashboard shows a warning banner when the backend reports a lower number.
+- `API_REVISION` in `backend/app/api/health.py` and `REQUIRED_API_REVISION` in `frontend/src/api.ts` must be equal (currently 5). Add 1 to both whenever an endpoint or response field the dashboard uses is added or changed. The dashboard shows a warning banner when the backend reports a lower number.
 - The API refuses to start when the database is not at the newest migration (`database.migration_status`), with a message to run `alembic upgrade head`.
 - Never apply a migration that changes how stored data is interpreted while an old backend is still running against the same database: the old code then writes inconsistent rows (migration `0003` repairs the config backups this produced).
 
@@ -137,5 +148,5 @@ Every change to `app/db/models.py` needs a migration; `tests/test_db.py` fails i
 
 ## Status
 
-- Done: foundation, settings loading (`app/core/config.py`, pydantic-settings), device collector (`app/engine/collector.py`, Netmiko + TextFSM), ARP discovery (`app/engine/discovery.py`, Scapy, offline OUI vendor lookup), Nmap service scanner (`app/engine/scanner.py`, XML parsed with ElementTree), device classifier (`app/engine/classifier.py`: scan-based guesses, confirmation by login, virtualisation as a separate attribute), database models and Alembic migrations, scan service with change detection between scans, config backups with normalised hashing and diffs, collection from all routers and switches in parallel (routes, OSPF, STP, trunks, CDP, ARP), FastAPI backend (scans in the background, devices, collection, CORS), React dashboard (overview, devices, device detail with collection, scan history). Backend and frontend both have tests that need no lab.
-- Not built yet: topology from the collected data, comparing collection runs, authentication, deployment on the Pi.
+- Done: foundation, settings loading (`app/core/config.py`, pydantic-settings), device collector (`app/engine/collector.py`, Netmiko + TextFSM), ARP discovery (`app/engine/discovery.py`, Scapy, offline OUI vendor lookup), Nmap service scanner (`app/engine/scanner.py`, XML parsed with ElementTree), device classifier (`app/engine/classifier.py`: scan-based guesses, confirmation by login, virtualisation as a separate attribute), database models and Alembic migrations, scan service with change detection between scans, config backups with normalised hashing and diffs, collection from all routers and switches in parallel (routes, OSPF, STP, trunks, CDP, ARP), topology built from each collection and drawn as an interactive map, FastAPI backend (scans in the background, devices, collection, CORS), React dashboard (overview, devices, device detail with collection, scan history). Backend and frontend both have tests that need no lab.
+- Not built yet: comparing collection runs and topologies (drift), authentication, deployment on the Pi.

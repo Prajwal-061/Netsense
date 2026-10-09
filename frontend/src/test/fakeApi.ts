@@ -10,6 +10,9 @@ import type {
   Device,
   DeviceCollectionResult,
   NetworkCollectionDetail,
+  Topology,
+  TopologyLink,
+  TopologyNode,
   Health,
   Port,
   ScanDetail,
@@ -280,4 +283,66 @@ function json(status: number, body: unknown): Response {
     status,
     headers: { 'Content-Type': 'application/json' },
   })
+}
+
+
+function topologyNode(id: string, kind: TopologyNode['kind'], name: string, extra: Partial<TopologyNode> = {}): TopologyNode {
+  return { id, kind, name, device_id: null, ip: null, mac: null, vendor: null, virtualization: null, platform: null, collected: kind === 'router' || kind === 'switch', ...extra }
+}
+
+function topologyLink(a: [string, string | null], b: [string, string | null], extra: Partial<TopologyLink> = {}): TopologyLink {
+  return {
+    id: `${a[0]}|${a[1] ?? ''}--${b[0]}|${b[1] ?? ''}`,
+    kind: 'cdp',
+    a: { node: a[0], interface: a[1] },
+    b: { node: b[0], interface: b[1] },
+    seen_from: [a[0], b[0]],
+    status: 'up',
+    mode: 'trunk',
+    vlans: [20, 30],
+    stp: [],
+    stp_blocked: false,
+    ospf: false,
+    ospf_state: null,
+    ...extra,
+  }
+}
+
+const forwarding = (vlan: number) => ({ vlan, state: 'forwarding' as const, blocked_at: null, roles: { 'dev:sw1': 'Desg', 'dev:sw2': 'Root' } })
+const blocking = (vlan: number) => ({ vlan, state: 'blocking' as const, blocked_at: 'dev:sw2', roles: { 'dev:sw1': 'Desg', 'dev:sw2': 'Altn' } })
+
+/** The lab as the backend's topology builder reports it. */
+export const TOPOLOGY: Topology = {
+  collection_id: 7,
+  collected_at: '2026-10-08T07:30:21Z',
+  version: 1,
+  nodes: [
+    topologyNode('dev:r1', 'router', 'R1', { device_id: 5, ip: '192.168.17.3' }),
+    topologyNode('dev:r2', 'router', 'R2', { device_id: 8, ip: '192.168.17.4' }),
+    topologyNode('dev:sw1', 'switch', 'SW1', { device_id: 2, ip: '192.168.17.10' }),
+    topologyNode('dev:sw2', 'switch', 'SW2', { device_id: 9, ip: '192.168.17.11' }),
+    topologyNode('host:52:54:00:68:dd:64', 'host', '10.1.20.10', { device_id: 4, ip: '10.1.20.10', mac: '52:54:00:68:dd:64', vendor: 'QEMU/KVM', virtualization: 'QEMU/KVM' }),
+  ],
+  links: [
+    topologyLink(['dev:r1', 'Gi0/1'], ['dev:sw1', 'Et0/1'], { stp: [forwarding(20), forwarding(30)] }),
+    topologyLink(['dev:r1', 'Gi0/2'], ['dev:r2', 'Gi0/1'], { mode: 'routed', vlans: [], ospf: true, ospf_state: 'FULL' }),
+    topologyLink(['dev:sw1', 'Et0/2'], ['dev:sw2', 'Et0/1'], { stp: [forwarding(20), forwarding(30)] }),
+    topologyLink(['dev:sw1', 'Et0/3'], ['dev:sw2', 'Et0/2'], { stp: [blocking(20), blocking(30)], stp_blocked: true }),
+    topologyLink(['dev:sw2', 'Et0/3'], ['host:52:54:00:68:dd:64', null], { kind: 'host', mode: 'access', vlans: [20], seen_from: ['dev:sw2'], stp: [{ ...forwarding(20), roles: { 'dev:sw2': 'Desg' } }] }),
+  ],
+  vlans: [
+    { id: 20, name: 'USERS' },
+    { id: 30, name: 'SERVERS' },
+  ],
+  unplaced_hosts: [],
+  management: {
+    network: '192.168.17.0/24',
+    members: [
+      { node: 'dev:r1', ip: '192.168.17.3', interface: 'Gi0/0', vlan: null },
+      { node: 'dev:r2', ip: '192.168.17.4', interface: 'Gi0/0', vlan: null },
+      { node: 'dev:sw1', ip: '192.168.17.10', interface: 'Et0/0', vlan: 10 },
+      { node: 'dev:sw2', ip: '192.168.17.11', interface: 'Et0/0', vlan: 10 },
+    ],
+    hosts: [topologyNode('host:00:0c:29:23:56:f6', 'host', '192.168.17.132', { ip: '192.168.17.132', vendor: 'VMware, Inc.' })],
+  },
 }

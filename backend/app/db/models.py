@@ -133,6 +133,9 @@ class NetworkCollection(Base):
     started_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     status: Mapped[str] = mapped_column(String(16), default=STATUS_RUNNING)
+    # The topology computed from this run (engine/topology.py), kept so that
+    # the topologies of different runs can be compared. Null until computed.
+    topology: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
     results: Mapped[list["DeviceCollection"]] = relationship(
         back_populates="network_collection", order_by="DeviceCollection.id"

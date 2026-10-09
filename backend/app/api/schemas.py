@@ -217,3 +217,88 @@ class CollectedData(BaseModel):
     data: list[dict[str, Any]] | str = Field(
         description="A list of rows when TextFSM parsed the output, otherwise the raw CLI text."
     )
+
+
+class TopologyNode(BaseModel):
+    id: str = Field(description="Stable across runs: dev:<hostname>, host:<mac> or nbr:<name>.")
+    kind: str = Field(description="router, switch, host or unknown")
+    name: str
+    device_id: int | None = Field(description="The device's page in NetSense, if it has one.")
+    ip: str | None
+    mac: str | None
+    vendor: str | None
+    virtualization: str | None
+    platform: str | None
+    collected: bool = Field(description="True if this run logged in to the device.")
+
+
+class TopologyEnd(BaseModel):
+    node: str
+    interface: str | None
+
+
+class TopologyStp(BaseModel):
+    vlan: int
+    state: str = Field(description="forwarding, blocking or transitioning")
+    blocked_at: str | None = Field(description="Node whose port is blocking, if any.")
+    roles: dict[str, str] = Field(description="Spanning-tree port role at each switch end.")
+
+
+class TopologyLink(BaseModel):
+    id: str
+    kind: str = Field(description="cdp (between network devices) or host (a MAC on an access port)")
+    a: TopologyEnd
+    b: TopologyEnd
+    seen_from: list[str] = Field(description="Nodes whose own data reported this link.")
+    status: str = Field(description="up, down or unknown")
+    mode: str = Field(description="trunk, access, routed or unknown")
+    vlans: list[int] = Field(description="VLANs carried on the link.")
+    stp: list[TopologyStp]
+    stp_blocked: bool = Field(description="Spanning tree blocks at least one VLAN on this link.")
+    ospf: bool = Field(description="The two ends are OSPF neighbours in state FULL.")
+    ospf_state: str | None
+
+
+class TopologyVlan(BaseModel):
+    id: int
+    name: str
+
+
+class UnplacedHost(BaseModel):
+    """A host in a router's ARP table that no switch has in its MAC table."""
+
+    ip: str
+    mac: str
+    vendor: str | None
+    seen_by: str = Field(description="Node whose ARP table lists it.")
+    interface: str = Field(description="That node's interface towards the host.")
+
+
+class ManagementMember(BaseModel):
+    node: str
+    ip: str
+    interface: str | None
+    vlan: int | None
+
+
+class ManagementView(BaseModel):
+    """The out-of-band network NetSense reaches devices over. Not a CDP link."""
+
+    network: str | None
+    members: list[ManagementMember]
+    hosts: list[TopologyNode] = Field(description="Other hosts a scan saw on that network.")
+
+
+class Topology(BaseModel):
+    collection_id: int
+    collected_at: datetime
+    version: int
+    nodes: list[TopologyNode]
+    links: list[TopologyLink]
+    vlans: list[TopologyVlan]
+    unplaced_hosts: list[UnplacedHost] = Field(
+        default=[],
+        description="Known from ARP but silent for long enough that no switch remembers "
+        "which port they are on, so they cannot be drawn.",
+    )
+    management: ManagementView

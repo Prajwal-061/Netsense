@@ -13,9 +13,10 @@ from ipaddress import IPv4Address, IPv4Network
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.credentials import Credentials
 from app.db.models import ConfigBackup, Device, DeviceCollection, NetworkCollection, utcnow
-from app.engine import classifier, collector, discovery
+from app.engine import classifier, collector, discovery, topology
 from app.engine.config_diff import config_hash
 
 # How many devices are logged in to at the same time. Collection is almost
@@ -171,11 +172,74 @@ def start_network_collection(
     return run
 
 
+def _last_known_hostname(session: Session, row: DeviceCollection) -> str | None:
+    """The name a device gave the last time it was collected from, if ever."""
+    if row.device_id is None:
+        return None
+    earlier = session.scalars(
+        select(DeviceCollection)
+        .where(
+            DeviceCollection.device_id == row.device_id,
+            DeviceCollection.status == DeviceCollection.STATUS_SUCCESS,
+        )
+        .order_by(DeviceCollection.id.desc())
+        .limit(1)
+    ).first()
+    version = earlier.data.get("version") if earlier else None
+    return (version[0].get("hostname") or None) if isinstance(version, list) and version else None
+
+
+def build_run_topology(
+    session: Session, run: NetworkCollection, allowed: list[IPv4Network] | None = None
+) -> dict:
+    """Compute the topology of a run from its device results and store it on the run.
+
+    The building itself is the pure function topology.build_topology; this
+    only gathers its inputs from the database and saves its output.
+    """
+    collected = [
+        {
+            "device_id": row.device_id,
+            "host": row.host,
+            "status": row.status,
+            "device_type": row.device.device_type if row.device else None,
+            "data": row.data,
+            "hostname": None
+            if row.status == DeviceCollection.STATUS_SUCCESS
+            else _last_known_hostname(session, row),
+        }
+        for row in run.results
+    ]
+    known_hosts = [
+        {
+            "device_id": device.id,
+            "ip": device.last_ip,
+            "mac": device.mac,
+            "vendor": device.vendor,
+            "device_type": device.device_type,
+            "virtualization": device.virtualization,
+        }
+        # Newest first, so that of two devices seen at one address the
+        # current one is used.
+        for device in session.scalars(select(Device).order_by(Device.last_seen.desc(), Device.id.desc()))
+    ]
+    # The management network is the allowed subnet the devices were reached in.
+    if allowed is None:
+        allowed = get_settings().allowed_subnets
+    hosts = [IPv4Address(row.host) for row in run.results]
+    network = next((str(net) for net in allowed if hosts and all(h in net for h in hosts)), None)
+
+    run.topology = topology.build_topology(collected, known_hosts, network)
+    session.commit()
+    return run.topology
+
+
 def run_network_collection(
     session: Session,
     run: NetworkCollection,
     credentials_for_host: Callable[[str], Credentials],
     max_workers: int = MAX_PARALLEL_DEVICES,
+    allowed: list[IPv4Network] | None = None,
 ) -> None:
     """Collect from every pending device of a run, a few at a time.
 
@@ -210,6 +274,7 @@ def run_network_collection(
                 else:
                     record_success(session, row, outcome)
         run.status = NetworkCollection.STATUS_COMPLETED
+        build_run_topology(session, run, allowed)
     except BaseException:
         session.rollback()
         run.status = NetworkCollection.STATUS_FAILED

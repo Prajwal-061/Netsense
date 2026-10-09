@@ -17,3 +17,8 @@ node_modules/
 .vscode/
 .idea/
 *.swp
+
+# Database copies (they hold device configs)
+*.db.bak
+*.db-journal
+*.bak

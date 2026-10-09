@@ -120,6 +120,14 @@ export function useRefreshWhenScanFinishes() {
   }, [running, queryClient])
 }
 
+/** The topology of one collection run, or of the latest when no id is given. */
+export function useTopology(collectionId?: number) {
+  return useQuery({
+    queryKey: ['topology', collectionId ?? 'latest'],
+    queryFn: () => api.getTopology(collectionId),
+  })
+}
+
 export function useDevices() {
   return useQuery({ queryKey: ['devices'], queryFn: api.getDevices })
 }

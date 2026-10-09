@@ -14,7 +14,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
-from app.api import collections, devices, health, scans
+from app.api import collections, devices, health, scans, topology
 from app.api.deps import get_engine
 from app.core.config import get_settings
 from app.db.database import is_migrated, migration_status
@@ -66,4 +66,5 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(scans.router)
 app.include_router(collections.router)
+app.include_router(topology.router)
 app.include_router(devices.router)

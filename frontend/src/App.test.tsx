@@ -2,7 +2,7 @@
 // only fetch replaced. They check behaviour, not how the pages look.
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { expect, test } from 'vitest'
@@ -22,6 +22,7 @@ import {
   scan,
   SCAN_3,
   SWITCH as SWITCH_DEVICE,
+  TOPOLOGY,
 } from './test/fakeApi'
 
 function open(path: string) {
@@ -523,4 +524,94 @@ test('scan history lists scans and a scan page shows its results and changes', a
   expect(await screen.findByRole('heading', { name: 'Devices seen (3)' })).toBeInTheDocument()
   expect((await card('Changes')).getByText('No longer seen')).toBeInTheDocument()
   expect(screen.getByText("ssh banner on port 22 is 'Cisco SSH 1.25', OS IOS")).toBeInTheDocument()
+})
+
+// --- Topology --------------------------------------------------------------
+// jsdom has no layout engine, so React Flow cannot position handles and the
+// links themselves are not drawn here. Their rules are tested in
+// src/topology/flow.test.ts; these tests cover the page around the map.
+
+test('topology page draws every device with its icon, and the controls', async () => {
+  installFakeApi({ 'GET /topology': TOPOLOGY, 'GET /collections': [collectionRun('finished')] })
+  open('/topology')
+
+  const map = within(await screen.findByTestId('topology-map'))
+  for (const name of ['R1', 'R2', 'SW1', 'SW2', '10.1.20.10']) {
+    expect(await map.findByText(name)).toBeInTheDocument()
+  }
+  expect(map.getAllByRole('img', { name: 'router' })).toHaveLength(2)
+  expect(map.getAllByRole('img', { name: 'switch' })).toHaveLength(2)
+  expect(map.getAllByRole('img', { name: 'host' })).toHaveLength(1)
+  expect(map.queryByText('Management network')).not.toBeInTheDocument()
+
+  expect(screen.getByText('2 routers, 2 switches, 1 host, 5 links · 1 blocked by spanning tree, 1 OSPF adjacency')).toBeInTheDocument()
+  expect(screen.getByText(/Collection #7,/)).toBeInTheDocument()
+  const vlans = within(screen.getByLabelText('Highlight VLAN')).getAllByRole('option').map((o) => o.textContent)
+  expect(vlans).toEqual(['All VLANs', 'VLAN 20 USERS', 'VLAN 30 SERVERS'])
+  expect(within(screen.getByRole('list', { name: 'Legend' })).getByText('Blocked by spanning tree')).toBeInTheDocument()
+})
+
+test('topology controls: VLAN highlight, management network and choosing a collection', async () => {
+  const api = installFakeApi({
+    'GET /topology': TOPOLOGY,
+    'GET /topology?collection_id=7': { ...TOPOLOGY, nodes: TOPOLOGY.nodes.slice(0, 4), links: TOPOLOGY.links.slice(0, 4) },
+    'GET /collections': [collectionRun('finished')],
+  })
+  const user = open('/topology')
+  const map = within(await screen.findByTestId('topology-map'))
+  await map.findByText('R2')
+
+  await user.selectOptions(screen.getByLabelText('Highlight VLAN'), '20')
+  expect(screen.getByText(/carrying VLAN 20 are highlighted/)).toBeInTheDocument()
+  // R2 is only reached over the routed link, which carries no VLAN.
+  await waitFor(() => expect(map.getByText('R2').closest('div[class*="rounded-lg"]')).toHaveClass('opacity-30'))
+  expect(map.getByText('SW2').closest('div[class*="rounded-lg"]')).not.toHaveClass('opacity-30')
+
+  await user.click(screen.getByLabelText('Show management network'))
+  expect(await map.findByText('Management network')).toBeInTheDocument()
+  expect(map.getByText('192.168.17.0/24')).toBeInTheDocument()
+  expect(map.getByText('1 other host')).toBeInTheDocument()
+
+  await user.selectOptions(screen.getByLabelText('Collection'), '7')
+  await waitFor(() => expect(api.calls).toContain('GET /topology?collection_id=7'))
+  await waitFor(() => expect(map.queryByText('10.1.20.10')).not.toBeInTheDocument())
+  expect(screen.getByText(/2 routers, 2 switches, 0 hosts, 4 links/)).toBeInTheDocument()
+})
+
+test('clicking a device on the map opens its page', async () => {
+  installFakeApi({ 'GET /topology': TOPOLOGY, 'GET /devices/2': SWITCH_DEVICE })
+  open('/topology')
+
+  // A bare click event: the simulated mouse-down of user.click() lacks the
+  // "view" every real browser event has, which React Flow's drag code reads.
+  fireEvent.click(await within(await screen.findByTestId('topology-map')).findByText('SW1'))
+
+  expect(await screen.findByRole('heading', { name: 'Classification' })).toBeInTheDocument()
+  expect(screen.getByText('aa:bb:cc:80:01:00')).toBeInTheDocument()
+})
+
+test('hosts known from ARP but not located are listed under the map with the reason', async () => {
+  installFakeApi({
+    'GET /topology': {
+      ...TOPOLOGY,
+      nodes: TOPOLOGY.nodes.slice(0, 4),
+      links: TOPOLOGY.links.slice(0, 4),
+      unplaced_hosts: [{ ip: '10.1.20.10', mac: '52:54:00:68:dd:64', vendor: 'QEMU/KVM', seen_by: 'dev:r1', interface: 'Gi0/1.20' }],
+    },
+  })
+  open('/topology')
+
+  const note = (await screen.findByText('Known hosts that could not be placed on the map')).parentElement!
+  expect(note).toHaveTextContent('10.1.20.10 (52:54:00:68:dd:64, QEMU/KVM), in the ARP table of R1 on Gi0/1.20')
+  expect(note).toHaveTextContent(/forgets a MAC address after about five minutes/)
+  expect(within(screen.getByTestId('topology-map')).queryByText('10.1.20.10')).not.toBeInTheDocument()
+})
+
+test('topology page explains when there is no collection yet', async () => {
+  installFakeApi({ 'GET /topology': new Failure(404, 'No collection has finished yet. Collect from all devices first; the topology is built from what they report.') })
+  open('/topology')
+
+  expect(await screen.findByText(/There is no topology yet/)).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: 'Collect from all devices' })).toHaveAttribute('href', '/collections')
+  expect(screen.queryByText('Request failed')).not.toBeInTheDocument()
 })

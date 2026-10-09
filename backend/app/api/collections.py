@@ -66,7 +66,10 @@ def run_collection_job(engine: Engine, run_id: int, settings: Settings) -> None:
         run = session.get(models.NetworkCollection, run_id)
         try:
             collection_service.run_network_collection(
-                session, run, lambda host: credentials_for(host, settings)
+                session,
+                run,
+                lambda host: credentials_for(host, settings),
+                allowed=settings.allowed_subnets,
             )
         except Exception:
             # Already saved on the run as status "failed".

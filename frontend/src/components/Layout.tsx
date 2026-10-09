@@ -8,6 +8,7 @@ const NAV = [
   { to: '/devices', label: 'Devices', end: false },
   { to: '/scans', label: 'Scans', end: false },
   { to: '/collections', label: 'Collections', end: false },
+  { to: '/topology', label: 'Topology', end: false },
 ]
 
 export default function Layout() {

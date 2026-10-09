@@ -387,3 +387,84 @@ def test_latest_data_survives_a_later_failed_collection(client, devices):
 
     assert response.status_code == 200
     assert len(response.json()["data"]) == 10
+
+
+# --- topology --------------------------------------------------------------
+
+
+def test_topology_is_saved_with_each_collection_run(session, devices):
+    with fake_lab():
+        run = run_collection(session)
+
+    session.refresh(run)
+    assert run.topology["version"] == 1
+    assert [node["id"] for node in run.topology["nodes"]] == ["dev:r1", "dev:r2", "dev:sw1", "dev:sw2"]
+    assert len(run.topology["links"]) == 4
+    # Nodes point back at the devices table, so the dashboard can link to them.
+    assert {node["device_id"] for node in run.topology["nodes"]} == {devices[name].id for name in HOSTS}
+
+
+def test_topology_of_a_run_with_a_failed_device_keeps_that_device(session, devices):
+    with fake_lab() as lab:
+        run_collection(session)  # R2 answers, so its name becomes known
+        lab.fail("R2", collector.DeviceTimeoutError("Timeout: no answer."))
+        run = run_collection(session)
+
+    assert [node["id"] for node in run.topology["nodes"]] == ["dev:r1", "dev:r2", "dev:sw1", "dev:sw2"]
+    r2 = next(node for node in run.topology["nodes"] if node["id"] == "dev:r2")
+    # Still R2, known from R1's CDP data, but marked as not collected this time.
+    assert (r2["name"], r2["device_id"], r2["collected"]) == ("R2", devices["R2"].id, False)
+    link = next(l for l in run.topology["links"] if l["b"]["node"] == "dev:r2")
+    assert link["seen_from"] == ["dev:r1"]
+    assert len(run.topology["links"]) == 4
+
+
+def test_get_topology_returns_the_latest_run(client, devices):
+    assert client.get("/topology").status_code == 404
+    with fake_lab() as lab:
+        first = client.post("/collections").json()["id"]
+        lab.fail("SW2", collector.DeviceTimeoutError("Timeout: no answer."))
+        second = client.post("/collections").json()["id"]
+
+    latest = client.get("/topology").json()
+
+    assert latest["collection_id"] == second
+    assert latest["collected_at"]
+    assert latest["management"]["network"] == "192.168.17.0/24"
+    assert {vlan["id"] for vlan in latest["vlans"]} == {20, 30}
+    link = next(l for l in latest["links"] if l["ospf"])
+    assert (link["a"], link["b"]) == ({"node": "dev:r1", "interface": "Gi0/2"}, {"node": "dev:r2", "interface": "Gi0/1"})
+    # With SW2 unreachable, its links are known from SW1's side only.
+    one_sided = [l for l in latest["links"] if "sw2" in l["b"]["node"] or "192.168.17.11" in l["b"]["node"] or "192.168.17.11" in l["a"]["node"]]
+    assert one_sided and all(l["seen_from"] == ["dev:sw1"] for l in one_sided)
+
+    earlier = client.get("/topology", params={"collection_id": first}).json()
+    assert earlier["collection_id"] == first
+    assert all(len(l["seen_from"]) == 2 for l in earlier["links"])
+
+
+def test_get_topology_errors(client, session, devices):
+    assert "Collect from all devices first" in client.get("/topology").json()["detail"]
+    assert client.get("/topology", params={"collection_id": 999}).status_code == 404
+    running = NetworkCollection(status=NetworkCollection.STATUS_RUNNING)
+    session.add(running)
+    session.commit()
+
+    assert client.get("/topology", params={"collection_id": running.id}).status_code == 409
+    # A run in progress is not "the latest finished one".
+    assert client.get("/topology").status_code == 404
+
+
+def test_topology_of_a_run_from_before_topologies_were_stored_is_computed_on_request(client, session, devices):
+    with fake_lab():
+        run_id = client.post("/collections").json()["id"]
+    run = session.get(NetworkCollection, run_id)
+    run.topology = None
+    session.commit()
+
+    response = client.get("/topology")
+
+    assert response.status_code == 200
+    assert len(response.json()["links"]) == 4
+    session.refresh(run)
+    assert run.topology is not None  # and kept from now on

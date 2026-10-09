@@ -10,7 +10,7 @@ export const API_URL: string = (
  * backend/app/api/health.py. A backend reporting a lower number (or none) is
  * running older code, usually because it was not restarted after an update.
  */
-export const REQUIRED_API_REVISION = 4
+export const REQUIRED_API_REVISION = 5
 
 export class ApiError extends Error {
   /** HTTP status code, or null when the API could not be reached at all. */
@@ -157,6 +157,65 @@ export interface CollectResult {
   config_changed: boolean
 }
 
+export interface TopologyNode {
+  /** Stable across runs: dev:<hostname>, host:<mac> or nbr:<name>. */
+  id: string
+  kind: 'router' | 'switch' | 'host' | 'unknown'
+  name: string
+  device_id: number | null
+  ip: string | null
+  mac: string | null
+  vendor: string | null
+  virtualization: string | null
+  platform: string | null
+  /** This run logged in to the device. */
+  collected: boolean
+}
+
+export interface TopologyEnd {
+  node: string
+  interface: string | null
+}
+
+export interface TopologyStp {
+  vlan: number
+  state: 'forwarding' | 'blocking' | 'transitioning'
+  blocked_at: string | null
+  roles: Record<string, string>
+}
+
+export interface TopologyLink {
+  id: string
+  kind: 'cdp' | 'host'
+  a: TopologyEnd
+  b: TopologyEnd
+  seen_from: string[]
+  status: 'up' | 'down' | 'unknown'
+  mode: 'trunk' | 'access' | 'routed' | 'unknown'
+  vlans: number[]
+  stp: TopologyStp[]
+  stp_blocked: boolean
+  ospf: boolean
+  ospf_state: string | null
+}
+
+export interface Topology {
+  collection_id: number
+  collected_at: string
+  version: number
+  nodes: TopologyNode[]
+  links: TopologyLink[]
+  vlans: { id: number; name: string }[]
+  /** In a router's ARP table, but in no switch's MAC table: known, but not located. */
+  unplaced_hosts: { ip: string; mac: string; vendor: string | null; seen_by: string; interface: string }[]
+  /** The out-of-band network NetSense reaches devices over. Not CDP links. */
+  management: {
+    network: string | null
+    members: { node: string; ip: string; interface: string | null; vlan: number | null }[]
+    hosts: TopologyNode[]
+  }
+}
+
 export type CollectedRow = Record<string, unknown>
 
 export interface CollectedData {
@@ -258,6 +317,8 @@ export const getCollection = (id: number) =>
   request<NetworkCollectionDetail>(`/collections/${id}`)
 export const startCollection = () =>
   request<NetworkCollectionDetail>('/collections', { method: 'POST' })
+export const getTopology = (collectionId?: number) =>
+  request<Topology>(collectionId === undefined ? '/topology' : `/topology?collection_id=${collectionId}`)
 export const getConfigs = (id: number) => request<ConfigBackup[]>(`/devices/${id}/configs`)
 export const getConfig = (id: number, backupId: number) =>
   request<ConfigBackupDetail>(`/devices/${id}/configs/${backupId}`)
