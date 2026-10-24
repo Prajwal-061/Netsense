@@ -5,6 +5,7 @@ import { ErrorBox, Spinner } from './ui'
 
 const NAV = [
   { to: '/', label: 'Overview', end: true },
+  { to: '/network-health', label: 'Network health', end: false },
   { to: '/devices', label: 'Devices', end: false },
   { to: '/scans', label: 'Scans', end: false },
   { to: '/collections', label: 'Collections', end: false },

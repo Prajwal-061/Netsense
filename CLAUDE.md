@@ -41,11 +41,11 @@ Management network 192.168.17.0/24 (out-of-band, one port per device, CDP disabl
 ## Layout
 
 ```
-backend/app/engine/   discovery, scanning, classification, device collection, topology
-backend/app/api/      FastAPI routes (scans.py, devices.py, collections.py, topology.py, health.py), schemas.py, deps.py
+backend/app/engine/   discovery, scanning, classification, device collection, topology, drift
+backend/app/api/      FastAPI routes (scans.py, devices.py, collections.py, topology.py, drift.py, health.py), schemas.py, deps.py
 backend/app/main.py   FastAPI app: CORS, startup checks, routers
 backend/app/db/       database models (models.py) and engine setup (database.py)
-backend/app/services/ glue between engine and database (scan_service.py, collection_service.py)
+backend/app/services/ glue between engine and database (scan_service.py, collection_service.py, drift_service.py)
 backend/migrations/   Alembic migrations (config in backend/alembic.ini)
 backend/app/core/     settings/config
 backend/scripts/      runnable scripts (collect_switch.py, discover.py, scan.py)
@@ -54,8 +54,8 @@ backend/.venv/        virtual environment (not committed)
 frontend/             React dashboard: Vite + React + TypeScript, Tailwind CSS, TanStack Query
 frontend/src/api.ts       typed API client (mirrors backend/app/api/schemas.py)
 frontend/src/queries.ts   TanStack Query hooks: all fetching, polling and cache refresh
-frontend/src/pages/       Overview, Devices, DeviceDetail, Scans, ScanDetail, Collections, Topology
-frontend/src/topology/    the map: flow.ts (layout and styling), DeviceNode, LinkEdge
+frontend/src/pages/       Overview, NetworkHealth, Devices, DeviceDetail, Scans, ScanDetail, Collections, Topology
+frontend/src/topology/    the map: flow.ts (layout and styling), TopologyMap (shared by Topology and Network health), DeviceNode, LinkEdge
 frontend/src/components/  shared UI; frontend/src/test/fakeApi.ts fakes the API in tests
 lab/                  CML topology and switch configs
 docs/
@@ -116,6 +116,16 @@ Every change to `app/db/models.py` needs a migration; `tests/test_db.py` fails i
 - A down link usually disappears from CDP within its 180 s holdtime, so "down" is rarely seen in one topology; detecting a missing link is a job for comparing runs.
 - Dashboard: `frontend/src/topology/flow.ts` (pure layout and styling, tested in `flow.test.ts`), `DeviceNode.tsx`, `LinkEdge.tsx`, `pages/Topology.tsx`, using React Flow (`@xyflow/react`). jsdom cannot lay out React Flow, so links are not drawn in page tests; `src/test/setup.ts` holds the browser-API stand-ins.
 
+## Baseline and drift
+
+- `app/engine/drift.py::compare_snapshots(baseline, current)` is a pure function. Snapshots come from `drift_service.snapshot(session, run)`: per device its data, config text (from its config backup) and name, plus the run's topology. The module docstring lists what is compared and what is treated as noise; keep it in sync when rules change.
+- Noise, never compared: ARP and MAC tables (hosts are compared through the topology, and a host still in an ARP table is quiet, not missing), uptime, OSPF dead time and the DR/BDR part of neighbour states, route uptime/metric/distance, local `L` routes, STP cost/port id/type, trunk active/forwarding VLANs, config timestamps (normalised), row order. Verified on real data: collections #1 and #3 (9 Oct) compare with zero findings.
+- Config changes are split per section (`interface X`, `router ospf 1`, global lines; an edited one-line global command is paired by its first two words), so each can be a probable cause on its own. OSPF `network` statements are mapped to the interfaces whose addresses they cover.
+- Correlation (`_correlate`): a config change is a probable cause of a state change in the same place (same device and interface, the far end of a link in either topology, or for STP the same VLAN on any switch); shutting/unshutting a trunk is linked to STP changes in the VLANs it carries; lost routes link to the lost OSPF neighbour (next hop) or the downed interface they were connected on; an unreachable device links to neighbours that lost it. A config change's severity is raised to its worst effect.
+- Root bridge per VLAN is derived (the parsed STP table has no root ID): the switch whose ports in that VLAN are all designated.
+- Baselines are a history table (`baselines`, newest is current); any finished collection with at least one device reached can be chosen. `drift_checks` stores each report as computed. `POST /drift-checks` with `collection_id` compares an existing collection without contacting devices (201); without it, it collects first (202).
+- On 2026-10-24 the lab was deliberately broken (R1 OSPF area 1 on the link to R2, SW2 Et0/3 to VLAN 30, SW2 STP priority 0 for VLAN 20, VLAN 20 removed from SW1's trunk to R1, R2 Loopback1 shut). Collections #1-#3 (9 Oct) are healthy; #4 (24 Oct) is the broken state and must never be the baseline. `tests/drift_lab.py` reproduces the five changes; `frontend/src/test/driftReport.json` is the engine's report for them.
+
 ## Classification
 
 - Device type and virtualisation are separate. `discovery.lookup_virtualization(mac)` gives the platform (QEMU/KVM, VMware, ...) from the MAC prefix and is stored in `devices.virtualization`; it never decides the type. There is no "virtual" device type any more (old scan results may still show `VMware/virtual`).
@@ -126,7 +136,7 @@ Every change to `app/db/models.py` needs a migration; `tests/test_db.py` fails i
 ## After changing backend code
 
 - A running backend keeps the code it started with. After any backend change, the user's API must be restarted (or be running with `--reload`) before the feature is tested, and `alembic upgrade head` must have been run. Check the running process, not just the tests: `curl -s http://127.0.0.1:8000/health` shows `api_revision`, and `/openapi.json` lists the routes it really serves. On 2026-10-08 a backend started before the config-diff feature produced three "bugs" at once: 422 "valid integer" on `/configs/diff`, wrong "no change" badges, and duplicate backups with old-style hashes.
-- `API_REVISION` in `backend/app/api/health.py` and `REQUIRED_API_REVISION` in `frontend/src/api.ts` must be equal (currently 5). Add 1 to both whenever an endpoint or response field the dashboard uses is added or changed. The dashboard shows a warning banner when the backend reports a lower number.
+- `API_REVISION` in `backend/app/api/health.py` and `REQUIRED_API_REVISION` in `frontend/src/api.ts` must be equal (currently 6). Add 1 to both whenever an endpoint or response field the dashboard uses is added or changed. The dashboard shows a warning banner when the backend reports a lower number.
 - The API refuses to start when the database is not at the newest migration (`database.migration_status`), with a message to run `alembic upgrade head`.
 - Never apply a migration that changes how stored data is interpreted while an old backend is still running against the same database: the old code then writes inconsistent rows (migration `0003` repairs the config backups this produced).
 
@@ -148,5 +158,5 @@ Every change to `app/db/models.py` needs a migration; `tests/test_db.py` fails i
 
 ## Status
 
-- Done: foundation, settings loading (`app/core/config.py`, pydantic-settings), device collector (`app/engine/collector.py`, Netmiko + TextFSM), ARP discovery (`app/engine/discovery.py`, Scapy, offline OUI vendor lookup), Nmap service scanner (`app/engine/scanner.py`, XML parsed with ElementTree), device classifier (`app/engine/classifier.py`: scan-based guesses, confirmation by login, virtualisation as a separate attribute), database models and Alembic migrations, scan service with change detection between scans, config backups with normalised hashing and diffs, collection from all routers and switches in parallel (routes, OSPF, STP, trunks, CDP, ARP), topology built from each collection and drawn as an interactive map, FastAPI backend (scans in the background, devices, collection, CORS), React dashboard (overview, devices, device detail with collection, scan history). Backend and frontend both have tests that need no lab.
-- Not built yet: comparing collection runs and topologies (drift), authentication, deployment on the Pi.
+- Done: foundation, settings loading (`app/core/config.py`, pydantic-settings), device collector (`app/engine/collector.py`, Netmiko + TextFSM), ARP discovery (`app/engine/discovery.py`, Scapy, offline OUI vendor lookup), Nmap service scanner (`app/engine/scanner.py`, XML parsed with ElementTree), device classifier (`app/engine/classifier.py`: scan-based guesses, confirmation by login, virtualisation as a separate attribute), database models and Alembic migrations, scan service with change detection between scans, config backups with normalised hashing and diffs, collection from all routers and switches in parallel (routes, OSPF, STP, trunks, CDP, ARP), topology built from each collection and drawn as an interactive map, baselines and drift checks with probable-cause correlation (Network health page), FastAPI backend (scans in the background, devices, collection, CORS), React dashboard (overview, devices, device detail with collection, scan history). Backend and frontend both have tests that need no lab.
+- Not built yet: authentication, scheduled drift checks and alerts, deployment on the Pi.

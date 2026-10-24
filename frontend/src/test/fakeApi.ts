@@ -3,6 +3,7 @@
 
 import { vi } from 'vitest'
 import { REQUIRED_API_REVISION } from '../api'
+import driftReport from './driftReport.json'
 import type {
   CollectResult,
   ConfigBackup,
@@ -10,6 +11,9 @@ import type {
   Device,
   DeviceCollectionResult,
   NetworkCollectionDetail,
+  Baseline,
+  DriftCheck,
+  DriftReport,
   Topology,
   TopologyLink,
   TopologyNode,
@@ -246,12 +250,15 @@ export interface FakeApi {
   calls: string[]
   /** When true, every request fails as if the server were down. */
   offline: boolean
+  /** The JSON body of the last request to each "METHOD /path". */
+  bodies: Record<string, unknown>
 }
 
 export function installFakeApi(overrides: Record<string, Reply> = {}): FakeApi {
   const api: FakeApi = {
     offline: false,
     calls: [],
+    bodies: {},
     routes: {
       'GET /health': HEALTH,
       'GET /scans': [scan(3, 'completed'), scan(2, 'completed', { device_count: 2 }), scan(1, 'completed')],
@@ -267,6 +274,7 @@ export function installFakeApi(overrides: Record<string, Reply> = {}): FakeApi {
     const { pathname, search } = new URL(url)
     const key = `${init?.method ?? 'GET'} ${pathname}${search}`
     api.calls.push(key)
+    if (typeof init?.body === 'string') api.bodies[key] = JSON.parse(init.body)
     if (api.offline) throw new TypeError('Failed to fetch')
 
     const route = api.routes[key]
@@ -345,4 +353,36 @@ export const TOPOLOGY: Topology = {
     ],
     hosts: [topologyNode('host:00:0c:29:23:56:f6', 'host', '192.168.17.132', { ip: '192.168.17.132', vendor: 'VMware, Inc.' })],
   },
+}
+
+
+export const BASELINE: Baseline = {
+  id: 1,
+  collection_id: 3,
+  collected_at: '2026-10-09T07:07:46Z',
+  set_at: '2026-10-24T08:51:26Z',
+  note: 'Healthy lab, 9 October',
+  devices: [
+    { host: '192.168.17.3', name: 'R1', status: 'success' },
+    { host: '192.168.17.4', name: 'R2', status: 'success' },
+    { host: '192.168.17.10', name: 'SW1', status: 'success' },
+    { host: '192.168.17.11', name: 'SW2', status: 'success' },
+  ],
+}
+
+/** The report the backend produces for the five changes made to the lab on 24 October. */
+export const DRIFT_REPORT = driftReport as DriftReport
+
+export function driftCheck(status: DriftCheck['status'], report: DriftReport | null = DRIFT_REPORT): DriftCheck {
+  return {
+    id: 3,
+    status,
+    started_at: '2026-10-24T09:00:00Z',
+    finished_at: status === 'running' ? null : '2026-10-24T09:00:05Z',
+    error: null,
+    baseline_collection_id: 3,
+    collection_id: 7,
+    summary: status === 'completed' && report ? report.summary : null,
+    report: status === 'completed' ? report : null,
+  }
 }

@@ -21,6 +21,9 @@ import {
   ROUTER,
   scan,
   SCAN_3,
+  BASELINE,
+  DRIFT_REPORT,
+  driftCheck,
   SWITCH as SWITCH_DEVICE,
   TOPOLOGY,
 } from './test/fakeApi'
@@ -613,5 +616,129 @@ test('topology page explains when there is no collection yet', async () => {
 
   expect(await screen.findByText(/There is no topology yet/)).toBeInTheDocument()
   expect(screen.getByRole('link', { name: 'Collect from all devices' })).toHaveAttribute('href', '/collections')
+  expect(screen.queryByText('Request failed')).not.toBeInTheDocument()
+})
+
+// --- Network health --------------------------------------------------------
+
+test('network health: choosing and setting the baseline', async () => {
+  const api = installFakeApi({
+    'GET /baseline': new Failure(404, 'No baseline has been set yet.'),
+    'GET /drift-checks': [],
+    'GET /collections': [collectionRun('finished'), { ...collectionRun('finished'), id: 6, started_at: '2026-10-09T07:07:42Z' }],
+    'PUT /baseline': { ...BASELINE, collection_id: 6, note: 'Healthy lab' },
+  })
+  const user = open('/network-health')
+
+  expect(await screen.findByText(/No baseline yet/)).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Run drift check' })).toBeDisabled()
+  expect(screen.getByText('Set a baseline first.')).toBeInTheDocument()
+
+  // Any finished collection can be chosen, not only the latest.
+  await user.selectOptions(screen.getByLabelText('Collection'), '6')
+  await user.type(screen.getByLabelText('Note (optional)'), 'Healthy lab')
+  await user.click(screen.getByRole('button', { name: 'Set as baseline' }))
+
+  expect(await screen.findByText('Collection #6')).toBeInTheDocument()
+  expect(api.bodies['PUT /baseline']).toEqual({ collection_id: 6, note: 'Healthy lab' })
+  expect(screen.getByText('"Healthy lab"')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Run drift check' })).toBeEnabled()
+})
+
+test('network health: a drift check runs, then shows causes, findings by device and diffs', async () => {
+  const api = installFakeApi({
+    'GET /baseline': BASELINE,
+    'GET /drift-checks': [],
+    'GET /topology?collection_id=7': TOPOLOGY,
+    'POST /drift-checks': () => {
+      api.routes['GET /drift-checks'] = [driftCheck('running')]
+      api.routes['GET /drift-checks/3'] = driftCheck('running')
+      api.routes['GET /collections/7'] = collectionRun('halfway')
+      return driftCheck('running')
+    },
+  })
+  const user = open('/network-health')
+
+  expect(await screen.findByText('Collection #3')).toBeInTheDocument()
+  expect(screen.getByText('"Healthy lab, 9 October"')).toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: 'Run drift check' }))
+  expect(await screen.findByText(/Drift check #3 is running: collecting, 2 of 4 devices done/)).toBeInTheDocument()
+
+  api.routes['GET /drift-checks'] = [driftCheck('completed')]
+  api.routes['GET /drift-checks/3'] = driftCheck('completed')
+
+  // Counts by severity.
+  const summary = await screen.findByRole('heading', { name: 'Check #3' }, { timeout: 6000 })
+  const tiles = within(summary.closest('section')!)
+  expect(tiles.getByText('Critical').previousSibling).toHaveTextContent(String(DRIFT_REPORT.summary.critical))
+  expect(tiles.getByText('Warning').previousSibling).toHaveTextContent(String(DRIFT_REPORT.summary.warning))
+  expect(tiles.getByText(/Collection #7 compared with baseline collection #3/)).toBeInTheDocument()
+
+  // Probable causes, each with what it led to.
+  const causes = within(screen.getByRole('heading', { name: 'Probable causes' }).closest('section')!)
+  const ospf = causes.getByText(/R1 configuration changed 'network 10.0.12.0 0.0.0.3 area 0'/).closest('li')!
+  expect(within(ospf).getByText('R2 lost OSPF neighbor R1 (10.0.12.1) on Gi0/1.')).toBeInTheDocument()
+  expect(within(ospf).getByText(/R1 lost 2 routes learned via 10.0.12.2/)).toBeInTheDocument()
+  expect(causes.getByText(/cannot prove them/)).toBeInTheDocument()
+
+  // Findings grouped by device, with their probable cause linked.
+  const r2 = within(screen.getByRole('link', { name: 'R2' }).closest('section')!)
+  // The message is also the 'Probable cause' link of R2's lost routes: take the finding itself.
+  const lost = r2.getByText('R2 lost OSPF neighbor R1 (10.0.12.1) on Gi0/1.', { selector: 'p' }).closest('li')!
+  expect(r2.getByText(/R2 lost 2 routes learned via 10.0.12.1/).closest('li')).toHaveTextContent('Probable cause: R2 lost OSPF neighbor R1')
+  const causeLink = within(lost).getByRole('link', { name: /R1 configuration changed/ })
+  const causeId = DRIFT_REPORT.findings.find((f) => f.message.startsWith('R1 configuration'))!.id
+  expect(causeLink).toHaveAttribute('href', `#finding-${causeId}`)
+  expect(document.getElementById(`finding-${causeId}`)).toHaveTextContent('R1 configuration changed')
+
+  // Expandable config diffs: per change, and the whole device.
+  const sw2 = within(screen.getByRole('link', { name: 'SW2' }).closest('section')!)
+  const change = sw2.getByText("SW2 configuration added 'spanning-tree vlan 20 priority 0'.", { selector: 'p' }).closest('li')!
+  await user.click(within(change).getByText('Show the configuration change'))
+  expect(within(change).getByText('+spanning-tree vlan 20 priority 0')).toHaveClass('text-emerald-300')
+  const full = sw2.getByText('Full configuration diff for SW2')
+  await user.click(full)
+  expect(within(full.closest('details')!).getByText('- switchport access vlan 20')).toHaveClass('text-red-300')
+
+  // The map of the checked collection, with the changed devices outlined.
+  const map = within(screen.getByTestId('topology-map'))
+  expect(await map.findByText('R1')).toBeInTheDocument()
+  expect(map.getByText('R1').closest('div[class*="rounded-lg"]')).toHaveClass('ring-orange-400')
+  expect(screen.getByText('Changed since the baseline')).toBeInTheDocument()
+}, 20_000)
+
+test('network health: a check with no drift says so plainly', async () => {
+  const clean = {
+    ...DRIFT_REPORT,
+    summary: { critical: 0, warning: 0, info: 0, devices_compared: 4, devices_with_drift: 0 },
+    findings: [],
+    chains: [],
+    config_diffs: {},
+    highlight: { nodes: [], links: [] },
+    devices: DRIFT_REPORT.devices.map((device) => ({ ...device, status: 'unchanged' as const, findings: [] })),
+  }
+  installFakeApi({
+    'GET /baseline': BASELINE,
+    'GET /drift-checks': [driftCheck('completed', clean)],
+    'GET /drift-checks/3': driftCheck('completed', clean),
+  })
+  open('/network-health')
+
+  expect(await screen.findByText('No drift: the network matches the baseline.')).toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: 'Probable causes' })).not.toBeInTheDocument()
+  expect(screen.queryByTestId('topology-map')).not.toBeInTheDocument()
+})
+
+test('network health: a refused drift check is explained', async () => {
+  installFakeApi({
+    'GET /baseline': BASELINE,
+    'GET /drift-checks': [],
+    'POST /drift-checks': new Failure(409, 'Collection #7 is still running (started 2026-10-24 09:00 UTC).'),
+  })
+  const user = open('/network-health')
+
+  await user.click(await screen.findByRole('button', { name: 'Run drift check' }))
+
+  expect(await screen.findByText(/Collection #7 is still running/)).toBeInTheDocument()
   expect(screen.queryByText('Request failed')).not.toBeInTheDocument()
 })

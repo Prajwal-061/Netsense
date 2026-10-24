@@ -10,7 +10,7 @@ export const API_URL: string = (
  * backend/app/api/health.py. A backend reporting a lower number (or none) is
  * running older code, usually because it was not restarted after an update.
  */
-export const REQUIRED_API_REVISION = 5
+export const REQUIRED_API_REVISION = 6
 
 export class ApiError extends Error {
   /** HTTP status code, or null when the API could not be reached at all. */
@@ -216,6 +216,79 @@ export interface Topology {
   }
 }
 
+export interface Baseline {
+  id: number
+  collection_id: number
+  collected_at: string
+  set_at: string
+  note: string | null
+  devices: { host: string; name: string | null; status: string }[]
+}
+
+export type Severity = 'critical' | 'warning' | 'info'
+
+export interface DriftFinding {
+  id: string
+  device: string
+  category: 'reachability' | 'config' | 'interface' | 'vlan' | 'trunk' | 'stp' | 'ospf' | 'route' | 'topology' | 'version'
+  severity: Severity
+  /** One plain sentence, e.g. "R2 lost OSPF neighbor R1 (10.0.12.1) on Gi0/1." */
+  message: string
+  details: string[]
+  interfaces: string[]
+  vlans: number[]
+  links: string[]
+  /** For a config change: the lines of that section, secrets masked. */
+  diff: string | null
+  /** Findings that probably caused this one. */
+  caused_by: string[]
+  /** Findings this one probably caused. */
+  effects: string[]
+}
+
+export interface DriftSummary {
+  critical: number
+  warning: number
+  info: number
+  devices_compared: number
+  devices_with_drift: number
+}
+
+export interface DriftReport {
+  version: number
+  baseline_collection_id: number | null
+  collection_id: number | null
+  summary: DriftSummary
+  devices: {
+    name: string
+    device_id: number | null
+    host: string | null
+    status: 'unchanged' | 'changed' | 'unreachable' | 'new' | 'not in baseline'
+    findings: string[]
+  }[]
+  findings: DriftFinding[]
+  /** Each probable cause with everything it probably led to. */
+  chains: { cause: string; effects: string[] }[]
+  /** Whole-config diff per changed device, secrets masked. */
+  config_diffs: Record<string, string>
+  highlight: { nodes: string[]; links: string[] }
+}
+
+export interface DriftCheckSummary {
+  id: number
+  status: 'running' | 'completed' | 'failed'
+  started_at: string
+  finished_at: string | null
+  error: string | null
+  baseline_collection_id: number
+  collection_id: number
+  summary: DriftSummary | null
+}
+
+export interface DriftCheck extends DriftCheckSummary {
+  report: DriftReport | null
+}
+
 export type CollectedRow = Record<string, unknown>
 
 export interface CollectedData {
@@ -319,6 +392,16 @@ export const startCollection = () =>
   request<NetworkCollectionDetail>('/collections', { method: 'POST' })
 export const getTopology = (collectionId?: number) =>
   request<Topology>(collectionId === undefined ? '/topology' : `/topology?collection_id=${collectionId}`)
+export const getBaseline = () => request<Baseline>('/baseline')
+export const setBaseline = (collectionId: number, note: string) =>
+  request<Baseline>('/baseline', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ collection_id: collectionId, note: note || null }),
+  })
+export const getDriftChecks = () => request<DriftCheckSummary[]>('/drift-checks')
+export const getDriftCheck = (id: number) => request<DriftCheck>(`/drift-checks/${id}`)
+export const startDriftCheck = () => request<DriftCheck>('/drift-checks', { method: 'POST' })
 export const getConfigs = (id: number) => request<ConfigBackup[]>(`/devices/${id}/configs`)
 export const getConfig = (id: number, backupId: number) =>
   request<ConfigBackupDetail>(`/devices/${id}/configs/${backupId}`)

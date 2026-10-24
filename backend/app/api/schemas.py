@@ -302,3 +302,99 @@ class Topology(BaseModel):
         "which port they are on, so they cannot be drawn.",
     )
     management: ManagementView
+
+
+class BaselineSet(BaseModel):
+    collection_id: int = Field(description="A finished collection taken while the network was healthy.")
+    note: str | None = Field(default=None, max_length=500, examples=["After adding VLAN 40"])
+
+
+class BaselineDevice(BaseModel):
+    host: str
+    name: str | None
+    status: str
+
+
+class Baseline(BaseModel):
+    id: int
+    collection_id: int
+    collected_at: datetime
+    set_at: datetime
+    note: str | None
+    devices: list[BaselineDevice]
+
+
+class DriftCheckStart(BaseModel):
+    collection_id: int | None = Field(
+        default=None,
+        description="Compare this existing collection instead of collecting now. "
+        "Without it, every network device is collected from first.",
+    )
+
+
+class DriftSummary(BaseModel):
+    critical: int
+    warning: int
+    info: int
+    devices_compared: int
+    devices_with_drift: int
+
+
+class DriftFinding(BaseModel):
+    id: str
+    device: str
+    category: str = Field(description="reachability, config, interface, vlan, trunk, stp, ospf, route, topology or version")
+    severity: str = Field(description="critical, warning or info")
+    message: str
+    details: list[str]
+    interfaces: list[str]
+    vlans: list[int]
+    links: list[str] = Field(description="Topology links this finding is about, for the map.")
+    diff: str | None = Field(description="For a config change: the lines of that section, secrets masked.")
+    caused_by: list[str] = Field(description="Findings that probably caused this one.")
+    effects: list[str] = Field(description="Findings this one probably caused.")
+
+
+class DriftDevice(BaseModel):
+    name: str
+    device_id: int | None
+    host: str | None
+    status: str = Field(description="unchanged, changed, unreachable, new or not in baseline")
+    findings: list[str]
+
+
+class DriftChain(BaseModel):
+    cause: str
+    effects: list[str]
+
+
+class DriftHighlight(BaseModel):
+    nodes: list[str]
+    links: list[str]
+
+
+class DriftReport(BaseModel):
+    version: int
+    baseline_collection_id: int | None
+    collection_id: int | None
+    summary: DriftSummary
+    devices: list[DriftDevice]
+    findings: list[DriftFinding]
+    chains: list[DriftChain] = Field(description="Each probable cause with everything it probably led to.")
+    config_diffs: dict[str, str] = Field(description="Whole-config diff per changed device, secrets masked.")
+    highlight: DriftHighlight
+
+
+class DriftCheckSummary(BaseModel):
+    id: int
+    status: str = Field(description="running, completed or failed")
+    started_at: datetime
+    finished_at: datetime | None
+    error: str | None
+    baseline_collection_id: int
+    collection_id: int
+    summary: DriftSummary | None
+
+
+class DriftCheck(DriftCheckSummary):
+    report: DriftReport | None

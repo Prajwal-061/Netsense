@@ -66,6 +66,12 @@ export function VirtualBadge({ platform }: { platform: string | null | undefined
   )
 }
 
+const SEVERITY_TONES: Record<string, Tone> = { critical: 'red', warning: 'amber', info: 'slate' }
+
+export function SeverityBadge({ severity }: { severity: string }) {
+  return <Badge tone={SEVERITY_TONES[severity] ?? 'slate'}>{severity}</Badge>
+}
+
 export function ScanStatusBadge({ status }: { status: ScanStatus }) {
   return (
     <Badge tone={SCAN_TONES[status]}>

@@ -17,7 +17,7 @@ router = APIRouter(tags=["health"])
 # REQUIRED_API_REVISION in frontend/src/api.ts to the same number. A
 # dashboard talking to a backend that was not restarted after an update then
 # says so, instead of failing in confusing ways.
-API_REVISION = 5
+API_REVISION = 6
 
 
 @router.get("/health", response_model=schemas.Health)

@@ -17,6 +17,8 @@ export interface FlowOptions {
   /** Highlight where this VLAN is carried. */
   vlan?: number
   showManagement?: boolean
+  /** Devices and links to mark as changed (a drift check's findings). */
+  changed?: { nodes: string[]; links: string[] }
 }
 
 export interface FlowNodeData extends Record<string, unknown> {
@@ -27,6 +29,8 @@ export interface FlowNodeData extends Record<string, unknown> {
   deviceId: number | null
   notCollected: boolean
   dimmed: boolean
+  /** Has drifted from the baseline. */
+  changed: boolean
 }
 
 export interface FlowNode {
@@ -67,6 +71,7 @@ const COLOURS = {
   down: '#dc2626', // red
   ospf: '#7c3aed', // violet
   vlan: '#2563eb', // blue
+  changed: '#ea580c', // orange
   management: '#94a3b8',
 }
 
@@ -197,6 +202,7 @@ export function toFlow(topology: Topology, options: FlowOptions = {}): { nodes: 
       deviceId: node.device_id,
       notCollected: node.kind !== 'host' && node.kind !== 'unknown' && !node.collected,
       dimmed: vlan !== undefined && !lit.has(node.id),
+      changed: options.changed?.nodes.includes(node.id) ?? false,
     },
   }))
 
@@ -220,9 +226,18 @@ export function toFlow(topology: Topology, options: FlowOptions = {}): { nodes: 
     const [from, to] = aFirst ? [link.a, link.b] : [link.b, link.a]
 
     const highlighted = carries(link)
+    const changed = options.changed?.links.includes(link.id) ?? false
     const blocked = isBlocked(link, highlighted ? vlan : undefined)
     const colour =
-      link.status === 'down' ? COLOURS.down : highlighted ? COLOURS.vlan : link.ospf ? COLOURS.ospf : COLOURS.normal
+      link.status === 'down'
+        ? COLOURS.down
+        : changed
+          ? COLOURS.changed
+          : highlighted
+            ? COLOURS.vlan
+            : link.ospf
+              ? COLOURS.ospf
+              : COLOURS.normal
     return {
       id: link.id,
       type: 'link',
@@ -235,10 +250,10 @@ export function toFlow(topology: Topology, options: FlowOptions = {}): { nodes: 
         targetLabel: to.interface ?? '',
         offset,
         colour,
-        width: highlighted || link.ospf ? 3 : link.kind === 'host' ? 1.5 : 2,
+        width: changed ? 3.5 : highlighted || link.ospf ? 3 : link.kind === 'host' ? 1.5 : 2,
         dash: blocked ? '7 6' : undefined,
         opacity: vlan !== undefined && !highlighted ? 0.18 : 1,
-        tag: link.status === 'down' ? 'down' : blocked ? 'STP blocked' : link.ospf ? 'OSPF' : null,
+        tag: link.status === 'down' ? 'down' : changed ? 'changed' : blocked ? 'STP blocked' : link.ospf ? 'OSPF' : null,
         details: linkDetails(link, byId),
       },
     }
@@ -262,6 +277,7 @@ export function toFlow(topology: Topology, options: FlowOptions = {}): { nodes: 
         deviceId: null,
         notCollected: false,
         dimmed: false,
+        changed: false,
       },
     })
     for (const member of topology.management.members) {

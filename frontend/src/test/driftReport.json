@@ -1,0 +1,535 @@
+{
+ "version": 1,
+ "baseline_collection_id": 3,
+ "collection_id": 7,
+ "summary": {
+  "critical": 7,
+  "warning": 12,
+  "info": 0,
+  "devices_compared": 4,
+  "devices_with_drift": 4
+ },
+ "devices": [
+  {
+   "name": "R1",
+   "device_id": 5,
+   "host": "192.168.17.3",
+   "status": "changed",
+   "findings": [
+    "f1",
+    "f2",
+    "f3",
+    "f4"
+   ]
+  },
+  {
+   "name": "R2",
+   "device_id": 8,
+   "host": "192.168.17.4",
+   "status": "changed",
+   "findings": [
+    "f5",
+    "f6",
+    "f7",
+    "f8",
+    "f9"
+   ]
+  },
+  {
+   "name": "SW1",
+   "device_id": 2,
+   "host": "192.168.17.10",
+   "status": "changed",
+   "findings": [
+    "f10",
+    "f11",
+    "f12",
+    "f13"
+   ]
+  },
+  {
+   "name": "SW2",
+   "device_id": 9,
+   "host": "192.168.17.11",
+   "status": "changed",
+   "findings": [
+    "f14",
+    "f15",
+    "f16",
+    "f17",
+    "f18",
+    "f19"
+   ]
+  }
+ ],
+ "findings": [
+  {
+   "id": "f1",
+   "device": "R1",
+   "category": "ospf",
+   "severity": "critical",
+   "message": "R1 lost OSPF neighbor R2 (10.0.12.2) on Gi0/2.",
+   "details": [
+    "Router ID 2.2.2.2; it was FULL in the baseline. Routes learned through it are gone with it."
+   ],
+   "interfaces": [
+    "Gi0/2"
+   ],
+   "vlans": [],
+   "links": [
+    "dev:r1|Gi0/2--dev:r2|Gi0/1"
+   ],
+   "diff": null,
+   "caused_by": [
+    "f4"
+   ],
+   "effects": [
+    "f2"
+   ]
+  },
+  {
+   "id": "f2",
+   "device": "R1",
+   "category": "route",
+   "severity": "critical",
+   "message": "R1 lost 2 routes learned via 10.0.12.2 (R2): 10.2.1.0/24, 10.2.2.0/24.",
+   "details": [
+    "10.2.1.0/24 (OSPF via 10.0.12.2)",
+    "10.2.2.0/24 (OSPF via 10.0.12.2)"
+   ],
+   "interfaces": [],
+   "vlans": [],
+   "links": [],
+   "diff": null,
+   "caused_by": [
+    "f1"
+   ],
+   "effects": []
+  },
+  {
+   "id": "f3",
+   "device": "R1",
+   "category": "ospf",
+   "severity": "warning",
+   "message": "R1 Gi0/2 moved from OSPF area 0 to area 1.",
+   "details": [
+    "Its neighbor on R2 Gi0/1 must be in the same area, or the adjacency cannot form."
+   ],
+   "interfaces": [
+    "Gi0/2"
+   ],
+   "vlans": [],
+   "links": [
+    "dev:r1|Gi0/2--dev:r2|Gi0/1"
+   ],
+   "diff": null,
+   "caused_by": [
+    "f4"
+   ],
+   "effects": []
+  },
+  {
+   "id": "f4",
+   "device": "R1",
+   "category": "config",
+   "severity": "critical",
+   "message": "R1 configuration changed 'network 10.0.12.0 0.0.0.3 area 0' to 'network 10.0.12.0 0.0.0.3 area 1' under 'router ospf 1'.",
+   "details": [],
+   "interfaces": [
+    "Gi0/2"
+   ],
+   "vlans": [],
+   "links": [],
+   "diff": " router ospf 1\n- network 10.0.12.0 0.0.0.3 area 0\n+ network 10.0.12.0 0.0.0.3 area 1",
+   "caused_by": [],
+   "effects": [
+    "f1",
+    "f3",
+    "f5"
+   ]
+  },
+  {
+   "id": "f5",
+   "device": "R2",
+   "category": "ospf",
+   "severity": "critical",
+   "message": "R2 lost OSPF neighbor R1 (10.0.12.1) on Gi0/1.",
+   "details": [
+    "Router ID 1.1.1.1; it was FULL in the baseline. Routes learned through it are gone with it."
+   ],
+   "interfaces": [
+    "Gi0/1"
+   ],
+   "vlans": [],
+   "links": [
+    "dev:r1|Gi0/2--dev:r2|Gi0/1"
+   ],
+   "diff": null,
+   "caused_by": [
+    "f4"
+   ],
+   "effects": [
+    "f7"
+   ]
+  },
+  {
+   "id": "f6",
+   "device": "R2",
+   "category": "route",
+   "severity": "critical",
+   "message": "R2 lost 1 route connected on Lo1: 10.2.1.0/24.",
+   "details": [
+    "10.2.1.0/24 (connected on Lo1)"
+   ],
+   "interfaces": [
+    "Lo1"
+   ],
+   "vlans": [],
+   "links": [],
+   "diff": null,
+   "caused_by": [
+    "f8"
+   ],
+   "effects": []
+  },
+  {
+   "id": "f7",
+   "device": "R2",
+   "category": "route",
+   "severity": "critical",
+   "message": "R2 lost 2 routes learned via 10.0.12.1 (R1): 10.1.20.0/24, 10.1.30.0/24.",
+   "details": [
+    "10.1.20.0/24 (OSPF via 10.0.12.1)",
+    "10.1.30.0/24 (OSPF via 10.0.12.1)"
+   ],
+   "interfaces": [],
+   "vlans": [],
+   "links": [],
+   "diff": null,
+   "caused_by": [
+    "f5"
+   ],
+   "effects": []
+  },
+  {
+   "id": "f8",
+   "device": "R2",
+   "category": "interface",
+   "severity": "warning",
+   "message": "R2 Lo1 was shut down (administratively down).",
+   "details": [
+    "Baseline: up/up; now: administratively down/down."
+   ],
+   "interfaces": [
+    "Lo1"
+   ],
+   "vlans": [],
+   "links": [],
+   "diff": null,
+   "caused_by": [
+    "f9"
+   ],
+   "effects": [
+    "f6"
+   ]
+  },
+  {
+   "id": "f9",
+   "device": "R2",
+   "category": "config",
+   "severity": "critical",
+   "message": "R2 configuration added 'shutdown' under 'interface Loopback1'.",
+   "details": [],
+   "interfaces": [
+    "Lo1"
+   ],
+   "vlans": [],
+   "links": [],
+   "diff": " interface Loopback1\n+ shutdown",
+   "caused_by": [],
+   "effects": [
+    "f8"
+   ]
+  },
+  {
+   "id": "f10",
+   "device": "SW1",
+   "category": "stp",
+   "severity": "warning",
+   "message": "Spanning tree VLAN 20: SW1 Et0/2 (to SW2 Et0/1) changed (role Desg FWD -> Root FWD).",
+   "details": [],
+   "interfaces": [
+    "Et0/2"
+   ],
+   "vlans": [
+    20
+   ],
+   "links": [
+    "dev:sw1|Et0/2--dev:sw2|Et0/1"
+   ],
+   "diff": null,
+   "caused_by": [
+    "f18"
+   ],
+   "effects": []
+  },
+  {
+   "id": "f11",
+   "device": "SW1",
+   "category": "stp",
+   "severity": "warning",
+   "message": "Spanning tree VLAN 20: SW1 Et0/3 (to SW2 Et0/2) is now blocking (role Desg FWD -> Altn BLK).",
+   "details": [],
+   "interfaces": [
+    "Et0/3"
+   ],
+   "vlans": [
+    20
+   ],
+   "links": [
+    "dev:sw1|Et0/3--dev:sw2|Et0/2"
+   ],
+   "diff": null,
+   "caused_by": [
+    "f18"
+   ],
+   "effects": []
+  },
+  {
+   "id": "f12",
+   "device": "SW1",
+   "category": "trunk",
+   "severity": "warning",
+   "message": "VLAN 20 is no longer allowed on SW1 trunk Et0/1 (to R1 Gi0/1).",
+   "details": [
+    "Allowed VLANs: baseline 20, 30, now 30."
+   ],
+   "interfaces": [
+    "Et0/1"
+   ],
+   "vlans": [
+    20
+   ],
+   "links": [
+    "dev:r1|Gi0/1--dev:sw1|Et0/1"
+   ],
+   "diff": null,
+   "caused_by": [
+    "f13"
+   ],
+   "effects": []
+  },
+  {
+   "id": "f13",
+   "device": "SW1",
+   "category": "config",
+   "severity": "warning",
+   "message": "SW1 configuration changed 'switchport trunk allowed vlan 20,30' to 'switchport trunk allowed vlan 30' under 'interface Ethernet0/1'.",
+   "details": [],
+   "interfaces": [
+    "Et0/1"
+   ],
+   "vlans": [
+    20,
+    30
+   ],
+   "links": [],
+   "diff": " interface Ethernet0/1\n- switchport trunk allowed vlan 20,30\n+ switchport trunk allowed vlan 30",
+   "caused_by": [],
+   "effects": [
+    "f12"
+   ]
+  },
+  {
+   "id": "f14",
+   "device": "SW2",
+   "category": "stp",
+   "severity": "warning",
+   "message": "Spanning tree VLAN 20: SW2 Et0/1 (to SW1 Et0/2) changed (role Root FWD -> Desg FWD).",
+   "details": [],
+   "interfaces": [
+    "Et0/1"
+   ],
+   "vlans": [
+    20
+   ],
+   "links": [
+    "dev:sw1|Et0/2--dev:sw2|Et0/1"
+   ],
+   "diff": null,
+   "caused_by": [
+    "f18"
+   ],
+   "effects": []
+  },
+  {
+   "id": "f15",
+   "device": "SW2",
+   "category": "stp",
+   "severity": "warning",
+   "message": "Spanning tree VLAN 20: SW2 Et0/2 (to SW1 Et0/3) is now forwarding (role Altn BLK -> Desg FWD).",
+   "details": [],
+   "interfaces": [
+    "Et0/2"
+   ],
+   "vlans": [
+    20
+   ],
+   "links": [
+    "dev:sw1|Et0/3--dev:sw2|Et0/2"
+   ],
+   "diff": null,
+   "caused_by": [
+    "f18"
+   ],
+   "effects": []
+  },
+  {
+   "id": "f16",
+   "device": "SW2",
+   "category": "stp",
+   "severity": "warning",
+   "message": "Spanning tree root bridge for VLAN 20 changed from SW1 to SW2.",
+   "details": [
+    "Traffic in this VLAN now follows different paths; ports elsewhere may have changed between forwarding and blocking."
+   ],
+   "interfaces": [],
+   "vlans": [
+    20
+   ],
+   "links": [],
+   "diff": null,
+   "caused_by": [
+    "f18"
+   ],
+   "effects": []
+  },
+  {
+   "id": "f17",
+   "device": "SW2",
+   "category": "vlan",
+   "severity": "warning",
+   "message": "SW2 access port Et0/3 moved from VLAN 20 (USERS) to VLAN 30 (SERVERS).",
+   "details": [
+    "Whatever is plugged into this port is now in a different subnet."
+   ],
+   "interfaces": [
+    "Et0/3"
+   ],
+   "vlans": [
+    20,
+    30
+   ],
+   "links": [],
+   "diff": null,
+   "caused_by": [
+    "f19"
+   ],
+   "effects": []
+  },
+  {
+   "id": "f18",
+   "device": "SW2",
+   "category": "config",
+   "severity": "warning",
+   "message": "SW2 configuration added 'spanning-tree vlan 20 priority 0'.",
+   "details": [],
+   "interfaces": [],
+   "vlans": [
+    20
+   ],
+   "links": [],
+   "diff": "+spanning-tree vlan 20 priority 0",
+   "caused_by": [],
+   "effects": [
+    "f10",
+    "f11",
+    "f14",
+    "f15",
+    "f16"
+   ]
+  },
+  {
+   "id": "f19",
+   "device": "SW2",
+   "category": "config",
+   "severity": "warning",
+   "message": "SW2 configuration changed 'switchport access vlan 20' to 'switchport access vlan 30' under 'interface Ethernet0/3'.",
+   "details": [],
+   "interfaces": [
+    "Et0/3"
+   ],
+   "vlans": [
+    20,
+    30
+   ],
+   "links": [],
+   "diff": " interface Ethernet0/3\n- switchport access vlan 20\n+ switchport access vlan 30",
+   "caused_by": [],
+   "effects": [
+    "f17"
+   ]
+  }
+ ],
+ "chains": [
+  {
+   "cause": "f4",
+   "effects": [
+    "f1",
+    "f3",
+    "f5",
+    "f2",
+    "f7"
+   ]
+  },
+  {
+   "cause": "f9",
+   "effects": [
+    "f8",
+    "f6"
+   ]
+  },
+  {
+   "cause": "f13",
+   "effects": [
+    "f12"
+   ]
+  },
+  {
+   "cause": "f18",
+   "effects": [
+    "f10",
+    "f11",
+    "f14",
+    "f15",
+    "f16"
+   ]
+  },
+  {
+   "cause": "f19",
+   "effects": [
+    "f17"
+   ]
+  }
+ ],
+ "config_diffs": {
+  "R1": "--- baseline\n+++ current\n@@ -27,7 +27,7 @@\n  router-id 1.1.1.1\n  passive-interface GigabitEthernet0/1.20\n  passive-interface GigabitEthernet0/1.30\n- network 10.0.12.0 0.0.0.3 area 0\n+ network 10.0.12.0 0.0.0.3 area 1\n  network 10.1.20.0 0.0.0.255 area 0\n  network 10.1.30.0 0.0.0.255 area 0\n !",
+  "R2": "--- baseline\n+++ current\n@@ -6,6 +6,7 @@\n interface Loopback1\n  ip address 10.2.1.1 255.255.255.0\n  ip ospf network point-to-point\n+ shutdown\n !\n interface Loopback2\n  ip address 10.2.2.1 255.255.255.0",
+  "SW1": "--- baseline\n+++ current\n@@ -14,7 +14,7 @@\n interface Ethernet0/1\n  description to-R1\n  switchport trunk encapsulation dot1q\n- switchport trunk allowed vlan 20,30\n+ switchport trunk allowed vlan 30\n  switchport mode trunk\n !\n interface Ethernet0/2",
+  "SW2": "--- baseline\n+++ current\n@@ -5,6 +5,7 @@\n !\n spanning-tree mode rapid-pvst\n spanning-tree extend system-id\n+spanning-tree vlan 20 priority 0\n !\n snmp-server community <redacted>\n !\n@@ -24,7 +25,7 @@\n !\n interface Ethernet0/3\n  description to-Alpine\n- switchport access vlan 20\n+ switchport access vlan 30\n  switchport mode access\n  spanning-tree portfast\n !"
+ },
+ "highlight": {
+  "nodes": [
+   "dev:r1",
+   "dev:r2",
+   "dev:sw1",
+   "dev:sw2"
+  ],
+  "links": [
+   "dev:r1|Gi0/1--dev:sw1|Et0/1",
+   "dev:r1|Gi0/2--dev:r2|Gi0/1",
+   "dev:sw1|Et0/2--dev:sw2|Et0/1",
+   "dev:sw1|Et0/3--dev:sw2|Et0/2"
+  ]
+ }
+}

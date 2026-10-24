@@ -200,3 +200,49 @@ class ConfigBackup(Base):
     config: Mapped[str] = mapped_column(Text)
 
     device: Mapped[Device | None] = relationship()
+
+
+class Baseline(Base):
+    """A collection marked as "the network as it should be".
+
+    Every time a baseline is set a new row is added, so the history of
+    baselines (and why they were taken) is kept. The newest row is the
+    current baseline.
+    """
+
+    __tablename__ = "baselines"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    network_collection_id: Mapped[int] = mapped_column(ForeignKey("network_collections.id"), index=True)
+    set_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    note: Mapped[str | None] = mapped_column(Text)
+
+    network_collection: Mapped[NetworkCollection] = relationship()
+
+
+class DriftCheck(Base):
+    """One comparison of a collection with the baseline.
+
+    report is the output of engine/drift.py's compare_snapshots, kept as it
+    was computed so that a later change of baseline does not rewrite history.
+    """
+
+    __tablename__ = "drift_checks"
+
+    STATUS_RUNNING = "running"
+    STATUS_COMPLETED = "completed"
+    STATUS_FAILED = "failed"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    baseline_id: Mapped[int] = mapped_column(ForeignKey("baselines.id"), index=True)
+    # The collection compared with the baseline: made by the check itself,
+    # or an existing one.
+    network_collection_id: Mapped[int] = mapped_column(ForeignKey("network_collections.id"), index=True)
+    started_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    status: Mapped[str] = mapped_column(String(16), default=STATUS_RUNNING)
+    error: Mapped[str | None] = mapped_column(Text)
+    report: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+
+    baseline: Mapped[Baseline] = relationship()
+    network_collection: Mapped[NetworkCollection] = relationship()

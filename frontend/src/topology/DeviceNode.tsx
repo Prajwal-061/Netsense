@@ -18,7 +18,9 @@ export default function DeviceNode({ data }: NodeProps) {
     <div
       className={`flex h-full w-full items-center gap-2 rounded-lg border-2 px-2.5 shadow-sm transition-opacity ${style.box} ${
         node.dimmed ? 'opacity-30' : ''
-      } ${node.deviceId !== null ? 'cursor-pointer hover:shadow-md' : 'cursor-default'}`}
+      } ${node.deviceId !== null ? 'cursor-pointer hover:shadow-md' : 'cursor-default'} ${
+        node.changed ? 'ring-4 ring-orange-400' : ''
+      }`}
       title={node.deviceId !== null ? `Open ${node.name}` : undefined}
     >
       <Handle id="top" type="target" position={Position.Top} className="!opacity-0" isConnectable={false} />

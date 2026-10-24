@@ -214,3 +214,13 @@ test('devices that were not reached and unknown neighbours are marked', () => {
 test('summary counts what is on the map', () => {
   expect(summarise(TOPOLOGY)).toBe('2 routers, 2 switches, 1 host, 5 links · 1 blocked by spanning tree, 1 OSPF adjacency')
 })
+
+test('devices and links that changed since the baseline are marked', () => {
+  const flow = toFlow(TOPOLOGY, { changed: { nodes: ['dev:r1', 'dev:r2'], links: ['dev:r1|Gi0/2--dev:r2|Gi0/1'] } })
+
+  expect(node(flow, 'dev:r1').data.changed).toBe(true)
+  expect(node(flow, 'dev:sw1').data.changed).toBe(false)
+  const [changed] = edge(flow, 'dev:r1', 'dev:r2')
+  expect([changed.data.colour, changed.data.width, changed.data.tag]).toEqual(['#ea580c', 3.5, 'changed'])
+  expect(edge(flow, 'dev:r1', 'dev:sw1')[0].data.colour).toBe('#64748b')
+})

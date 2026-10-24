@@ -1,20 +1,12 @@
-import { Controls, ReactFlow, useNodesState } from '@xyflow/react'
-import '@xyflow/react/dist/style.css'
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { ApiError } from '../api'
 import { Card, EmptyState, ErrorBox, Loading, PageTitle } from '../components/ui'
 import { formatDateTime, timeAgo } from '../format'
 import { useCollections, useTopology } from '../queries'
-import DeviceNode, { KindIcon } from '../topology/DeviceNode'
-import { summarise, toFlow } from '../topology/flow'
-import type { FlowNode } from '../topology/flow'
-import LinkEdge from '../topology/LinkEdge'
-
-// Defined once, outside the component: React Flow re-mounts every node if
-// these objects change identity between renders.
-const NODE_TYPES = { device: DeviceNode }
-const EDGE_TYPES = { link: LinkEdge }
+import { KindIcon } from '../topology/DeviceNode'
+import { summarise } from '../topology/flow'
+import TopologyMap from '../topology/TopologyMap'
 
 export default function TopologyPage() {
   const runs = useCollections()
@@ -22,25 +14,7 @@ export default function TopologyPage() {
   const [vlan, setVlan] = useState<number>()
   const [showManagement, setShowManagement] = useState(false)
   const topology = useTopology(collectionId)
-  const navigate = useNavigate()
-
-  const flow = useMemo(
-    () => (topology.data ? toFlow(topology.data, { vlan, showManagement }) : { nodes: [], edges: [] }),
-    [topology.data, vlan, showManagement],
-  )
-  // Nodes can be dragged. Keep a dragged node where it was put when only the
-  // filter changes; start from the automatic layout for another collection.
-  const [nodes, setNodes, onNodesChange] = useNodesState<FlowNode>([])
-  const shown = topology.data?.collection_id
-  const laidOutFor = useRef<number>(undefined)
-  useEffect(() => {
-    const sameCollection = laidOutFor.current === shown
-    laidOutFor.current = shown
-    setNodes((current) => {
-      const moved = new Map(sameCollection ? current.map((node) => [node.id, node.position]) : [])
-      return flow.nodes.map((node) => ({ ...node, position: moved.get(node.id) ?? node.position }))
-    })
-  }, [flow.nodes, shown, setNodes])
+  const options = useMemo(() => ({ vlan, showManagement }), [vlan, showManagement])
 
   const finished = (runs.data ?? []).filter((run) => run.status !== 'running')
   const noCollection = topology.error instanceof ApiError && topology.error.status === 404
@@ -126,26 +100,7 @@ export default function TopologyPage() {
               </p>
             )}
             {/* Tall enough to read, short enough for a laptop screen. */}
-            <div className="h-[min(68vh,620px)] min-h-[400px] p-2" data-testid="topology-map">
-              <ReactFlow
-                nodes={nodes}
-                edges={flow.edges}
-                onNodesChange={onNodesChange}
-                nodeTypes={NODE_TYPES}
-                edgeTypes={EDGE_TYPES}
-                onNodeClick={(_, node) => {
-                  if (node.data.deviceId !== null) void navigate(`/devices/${node.data.deviceId}`)
-                }}
-                fitView
-                fitViewOptions={{ padding: 0.18 }}
-                minZoom={0.3}
-                maxZoom={1.8}
-                nodesConnectable={false}
-                edgesFocusable={false}
-              >
-                <Controls showInteractive={false} />
-              </ReactFlow>
-            </div>
+            <TopologyMap topology={topology.data} options={options} />
             <Legend />
             {topology.data.unplaced_hosts.length > 0 && (
               <div className="border-t border-slate-200 bg-amber-50/60 px-4 py-3 text-sm text-amber-900">
@@ -174,7 +129,7 @@ export default function TopologyPage() {
   )
 }
 
-function Legend() {
+export function Legend({ showChanged = false }: { showChanged?: boolean }) {
   const line = (colour: string, dash?: string, width = 2) => (
     <svg width="34" height="8" aria-hidden="true">
       <line x1="1" y1="4" x2="33" y2="4" stroke={colour} strokeWidth={width} strokeDasharray={dash} />
@@ -197,6 +152,7 @@ function Legend() {
       {item(line('#dc2626'), 'Down')}
       {item(line('#7c3aed', undefined, 3), 'OSPF neighbours')}
       {item(line('#94a3b8', '2 5', 1.5), 'Management')}
+      {showChanged && item(line('#ea580c', undefined, 3.5), 'Changed since the baseline')}
       <li className="text-slate-500">Point at a link for details. Click a device to open it. Drag to rearrange.</li>
     </ul>
   )

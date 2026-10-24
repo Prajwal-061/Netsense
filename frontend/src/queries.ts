@@ -98,6 +98,68 @@ export function useStartCollection() {
   })
 }
 
+/** The current baseline, or null when none has been set (the API answers 404). */
+export function useBaseline() {
+  return useQuery({
+    queryKey: ['baseline'],
+    queryFn: async () => {
+      try {
+        return await api.getBaseline()
+      } catch (error) {
+        if (error instanceof api.ApiError && error.status === 404) return null
+        throw error
+      }
+    },
+  })
+}
+
+export function useSetBaseline() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ collectionId, note }: { collectionId: number; note: string }) =>
+      api.setBaseline(collectionId, note),
+    onSuccess: (baseline) => queryClient.setQueryData(['baseline'], baseline),
+  })
+}
+
+/** Drift checks, polled quickly while one is running (its collection takes a while). */
+export function useDriftChecks() {
+  return useQuery({
+    queryKey: ['drift-checks'],
+    queryFn: api.getDriftChecks,
+    refetchInterval: (query) =>
+      query.state.data?.some((check) => check.status === 'running') ? POLL_RUNNING_MS : POLL_IDLE_MS,
+  })
+}
+
+export function useDriftCheck(id: number | undefined) {
+  return useQuery({
+    queryKey: ['drift-checks', id],
+    queryFn: () => api.getDriftCheck(id!),
+    enabled: id !== undefined,
+    refetchInterval: (query) => (query.state.data?.status === 'running' ? POLL_RUNNING_MS : false),
+  })
+}
+
+export function useStartDriftCheck() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: api.startDriftCheck,
+    onSuccess: (check) => {
+      queryClient.setQueryData<api.DriftCheck>(['drift-checks', check.id], check)
+      queryClient.setQueryData<api.DriftCheckSummary[]>(['drift-checks'], (checks) => [
+        check,
+        ...(checks ?? []).filter((other) => other.id !== check.id),
+      ])
+      // The check starts a collection: let the collection list poll too.
+      void queryClient.invalidateQueries({ queryKey: ['collections'], exact: true })
+    },
+    onError: () => {
+      void queryClient.invalidateQueries({ queryKey: ['drift-checks'], exact: true })
+    },
+  })
+}
+
 /**
  * Refresh everything when a scan or a collection stops running (finished or
  * failed). Mounted once, in the layout, so it works on whichever page is open.
@@ -106,9 +168,11 @@ export function useRefreshWhenScanFinishes() {
   const queryClient = useQueryClient()
   const { data: scans } = useScans()
   const { data: collections } = useCollections()
+  const { data: checks } = useDriftChecks()
   const running =
     (scans?.some((scan) => scan.status === 'running') ?? false) ||
-    (collections?.some((run) => run.status === 'running') ?? false)
+    (collections?.some((run) => run.status === 'running') ?? false) ||
+    (checks?.some((check) => check.status === 'running') ?? false)
   const wasRunning = useRef(false)
 
   useEffect(() => {

@@ -13,6 +13,7 @@ It is a college project, built and tested against a Cisco CML lab.
 - **Cisco device collection** over SSH (Netmiko) from every router and switch in one parallel run: interfaces, CDP neighbors, ARP and running config from all; VLANs, trunks, spanning tree and MAC table from switches; routing table and OSPF from routers. Read-only show commands, authorized devices only
 - **Device classification** from service banners and open ports, confirmed as router or switch once NetSense has logged in to the device; whether a device is virtual (QEMU/KVM, VMware, ...) is shown separately
 - **Topology map** built from each collection: device links from CDP (parallel links kept apart), hosts from switch MAC tables, with spanning-tree state, VLANs and OSPF adjacencies on each link
+- **Baseline and drift detection**: save a collection from when the network was healthy, then compare any later state with it. Configuration, interfaces, VLANs, trunks, spanning tree, OSPF, routes, topology and reachability are compared, noise is ignored, and each finding is a plain sentence linked to its probable cause
 - **Scan history** stored in a database, with a report of new devices, missing devices and IP changes between scans
 - **Config backups and diffs**: a device's running config is stored when it changes, ignoring timestamp-only differences, and any two backups can be compared line by line
 - **REST API** built with FastAPI
@@ -142,6 +143,10 @@ npm run dev -- --host
 `--host` makes the dev server reachable from other machines, not just from the VM itself.
 
 The dashboard calls the API at `http://192.168.17.132:8000`. To use another address, put `VITE_API_URL=http://<address>:8000` in `frontend/.env.local` and add the dashboard's own address to `CORS_ORIGINS` in `.env`.
+
+### After updating
+
+Each update can add database tables. Stop the backend, run `alembic upgrade head` in `backend/`, then start it again. The API refuses to start until the database is up to date.
 
 ### 5. Open it
 

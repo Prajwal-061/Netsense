@@ -14,11 +14,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
-from app.api import collections, devices, health, scans, topology
+from app.api import collections, devices, drift, health, scans, topology
 from app.api.deps import get_engine
 from app.core.config import get_settings
 from app.db.database import is_migrated, migration_status
-from app.services import collection_service, scan_service
+from app.services import collection_service, drift_service, scan_service
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -42,6 +42,7 @@ async def lifespan(app: FastAPI):
     with Session(engine) as session:
         interrupted = scan_service.fail_interrupted_scans(session)
         interrupted += collection_service.fail_interrupted_collections(session)
+        interrupted += drift_service.fail_interrupted_drift_checks(session)
     if interrupted:
         logger.warning("Marked %s interrupted scan(s) or collection(s) as failed.", interrupted)
     yield
@@ -67,4 +68,5 @@ app.include_router(health.router)
 app.include_router(scans.router)
 app.include_router(collections.router)
 app.include_router(topology.router)
+app.include_router(drift.router)
 app.include_router(devices.router)
