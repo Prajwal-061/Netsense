@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.api import collections, devices, drift, health, scans, topology
@@ -54,13 +55,67 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Every HTTP method the API's routes use. The browser asks first (a CORS
+# "preflight") whether the dashboard may send a PUT or POST; a method missing
+# here makes the browser drop the request, and the page only sees a failed
+# fetch. tests/test_api.py checks this list against every route.
+ALLOWED_METHODS = ["GET", "POST", "PUT"]
+
+
+class UnhandledErrorsAsJson:
+    """Turn an unhandled exception into a JSON 500 response.
+
+    Starlette's own handler for unhandled errors sits outside every other
+    middleware, CORS included, so its 500 response has no CORS headers and
+    the browser will not let the dashboard read it: the page sees a network
+    failure instead. Added before CORSMiddleware, this middleware sits inside
+    it, so its response gets the CORS headers like any other.
+
+    The response names only the type of error. The message and traceback can
+    contain SQL, addresses or config text, so they go to the server log.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        started = False
+
+        async def send_and_track(message):
+            nonlocal started
+            if message["type"] == "http.response.start":
+                started = True
+            await send(message)
+
+        try:
+            await self.app(scope, receive, send_and_track)
+        except Exception as exc:
+            logger.exception("Unhandled error in %s %s", scope.get("method"), scope.get("path"))
+            if started:
+                raise  # part of a response was already sent: nothing to replace
+            response = JSONResponse(
+                {
+                    "detail": f"Internal server error ({type(exc).__name__}) while handling "
+                    f"{scope.get('method')} {scope.get('path')}. The full error is in the backend's log."
+                },
+                status_code=500,
+            )
+            await response(scope, receive, send)
+
+
+# Order matters: middleware added later wraps middleware added earlier.
+app.add_middleware(UnhandledErrorsAsJson)
+
 # Browsers block a page from calling an API on a different origin (scheme +
 # host + port) unless the API allows that origin. The dashboard's dev server
 # is such a different origin, so it is listed in CORS_ORIGINS.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=get_settings().cors_origins,
-    allow_methods=["GET", "POST"],
+    allow_methods=ALLOWED_METHODS,
     allow_headers=["*"],
 )
 

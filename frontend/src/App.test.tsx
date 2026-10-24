@@ -8,6 +8,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { expect, test } from 'vitest'
 import App from './App'
 import {
+  BLOCKED,
   BACKUP,
   BACKUP_2,
   COLLECT_RESULT,
@@ -741,4 +742,40 @@ test('network health: a refused drift check is explained', async () => {
 
   expect(await screen.findByText(/Collection #7 is still running/)).toBeInTheDocument()
   expect(screen.queryByText('Request failed')).not.toBeInTheDocument()
+})
+
+// --- error messages ----------------------------------------------------------
+
+test('an error answer from the API is shown as such, with the server\'s message', async () => {
+  installFakeApi({
+    'GET /baseline': new Failure(404, 'No baseline has been set yet.'),
+    'GET /drift-checks': [],
+    'GET /collections': [collectionRun('finished')],
+    'PUT /baseline': new Failure(500, 'Internal server error (RuntimeError) while handling PUT /baseline. The full error is in the backend\'s log.'),
+  })
+  const user = open('/network-health')
+
+  await user.click(await screen.findByRole('button', { name: 'Set as baseline' }))
+
+  const alert = await screen.findByText(/Internal server error \(RuntimeError\) while handling PUT \/baseline/)
+  expect(alert.closest('[role="alert"]')).toHaveTextContent('The API answered with an error (HTTP 500)')
+  expect(screen.queryByText('API not reachable')).not.toBeInTheDocument()
+})
+
+test('a request the browser blocks while the API is up is not called unreachable', async () => {
+  // Regression: PUT /baseline was refused by CORS, and the page said "API not reachable".
+  installFakeApi({
+    'GET /baseline': new Failure(404, 'No baseline has been set yet.'),
+    'GET /drift-checks': [],
+    'GET /collections': [collectionRun('finished')],
+    'PUT /baseline': BLOCKED,
+  })
+  const user = open('/network-health')
+
+  await user.click(await screen.findByRole('button', { name: 'Set as baseline' }))
+
+  const alert = (await screen.findByText('Request blocked by the browser')).closest('[role="alert"]')!
+  expect(alert).toHaveTextContent('is running, but the browser blocked its answer to PUT /baseline')
+  expect(alert).toHaveTextContent('CORS')
+  expect(screen.queryByText('API not reachable')).not.toBeInTheDocument()
 })

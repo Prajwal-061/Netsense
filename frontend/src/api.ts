@@ -13,13 +13,19 @@ export const API_URL: string = (
 export const REQUIRED_API_REVISION = 6
 
 export class ApiError extends Error {
-  /** HTTP status code, or null when the API could not be reached at all. */
+  /** HTTP status code, or null when no answer could be read. */
   status: number | null
+  /**
+   * True when the API is up but the browser would not let the page read its
+   * answer (CORS). Only meaningful when status is null.
+   */
+  blocked: boolean
 
-  constructor(status: number | null, message: string) {
+  constructor(status: number | null, message: string, blocked = false) {
     super(message)
     this.name = 'ApiError'
     this.status = status
+    this.blocked = blocked
   }
 }
 
@@ -348,17 +354,39 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   try {
     response = await fetch(API_URL + path, init)
   } catch {
-    // fetch only rejects when no HTTP response arrived: server down, wrong
-    // address, or the browser blocked the request (CORS).
-    throw new ApiError(
-      null,
-      `Cannot reach the NetSense API at ${API_URL}. Check that the backend is running.`,
-    )
+    // fetch only rejects when no readable HTTP response arrived. The page is
+    // not told why, so find out which of the two usual reasons it is.
+    throw await whyNoAnswer(path, init?.method ?? 'GET')
   }
   if (!response.ok) {
     throw new ApiError(response.status, await errorDetail(response))
   }
   return (await response.json()) as T
+}
+
+/**
+ * A request got no readable answer: either the API is down, or it answered
+ * and the browser hid the answer because of CORS (for example a method the
+ * API does not allow from this page). A plain GET of /health tells them apart.
+ */
+async function whyNoAnswer(path: string, method: string): Promise<ApiError> {
+  if (path !== '/health') {
+    try {
+      const probe = await fetch(API_URL + '/health')
+      if (probe.ok) {
+        return new ApiError(
+          null,
+          `The API at ${API_URL} is running, but the browser blocked its answer to ${method} ${path}. ` +
+            "This usually means the API's CORS settings do not allow this request from this page " +
+            '(the allowed origins in CORS_ORIGINS, or the allowed methods).',
+          true,
+        )
+      }
+    } catch {
+      // The API is not answering at all.
+    }
+  }
+  return new ApiError(null, `Cannot reach the NetSense API at ${API_URL}. Check that the backend is running.`)
 }
 
 /** FastAPI puts the reason in "detail": a string, or a list for validation errors. */

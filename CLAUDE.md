@@ -104,6 +104,8 @@ Every change to `app/db/models.py` needs a migration; `tests/test_db.py` fails i
 - Diff endpoints: `GET /devices/{id}/configs/diff?from_id=&to_id=` and `/configs/diff/latest`. They are declared before `/configs/{backup_id}` on purpose (route order).
 - The lab switch runs in VTP server mode, so VLAN definitions are in `vlan.dat`, not in the running config: creating a VLAN does not show in a config diff, only the interface lines that use it.
 - `POST /devices/{id}/collect` sends the `.env` credentials to any device classified "network device", "router" or "switch" inside `ALLOWED_SUBNETS`. The classification comes from a banner the device controls, so restrict this to an explicit list of authorized hosts before leaving the lab.
+- CORS: `ALLOWED_METHODS` in `app/main.py` must list every HTTP method a route uses (`tests/test_api.py` checks it); a missing one makes the browser drop the request after its preflight, which the page could only report as a failed fetch. The test client skips CORS, so only that test catches it. `UnhandledErrorsAsJson` sits inside `CORSMiddleware` so even a 500 carries CORS headers; it returns only the exception type, the rest goes to the log.
+- Dashboard errors (`frontend/src/api.ts`): an HTTP error shows the server's `detail`; a failed fetch is probed with `GET /health` to tell "blocked by the browser (CORS)" from "API not reachable".
 - Tests set fake credentials and an in-memory `DATABASE_URL` in `tests/conftest.py` before importing the app, so they never read `.env` or `netsense.db`.
 
 ## Topology

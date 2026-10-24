@@ -115,11 +115,18 @@ export function Loading({ label = 'Loading...' }: { label?: string }) {
 }
 
 export function ErrorBox({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
-  const unreachable = error instanceof ApiError && error.status === null
   const message = error instanceof Error ? error.message : String(error)
+  const title =
+    error instanceof ApiError
+      ? error.status !== null
+        ? `The API answered with an error (HTTP ${error.status})`
+        : error.blocked
+          ? 'Request blocked by the browser'
+          : 'API not reachable'
+      : 'Request failed'
   return (
     <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-900" role="alert">
-      <p className="font-semibold">{unreachable ? 'API not reachable' : 'Request failed'}</p>
+      <p className="font-semibold">{title}</p>
       <p className="mt-1 break-words">{message}</p>
       {onRetry && (
         <button

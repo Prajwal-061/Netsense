@@ -231,6 +231,9 @@ export function collectionRun(stage: 'started' | 'halfway' | 'finished'): Networ
   }
 }
 
+/** A route reply that makes fetch fail for that request only, as a CORS block does. */
+export const BLOCKED = Symbol('blocked by the browser')
+
 /** A reply: a JSON body (status 200), [status, body], or a function returning either. */
 type Reply = unknown | (() => unknown)
 
@@ -279,6 +282,7 @@ export function installFakeApi(overrides: Record<string, Reply> = {}): FakeApi {
 
     const route = api.routes[key]
     const reply = typeof route === 'function' ? (route as () => unknown)() : route
+    if (reply === BLOCKED) throw new TypeError('Failed to fetch')
     if (reply === undefined) return json(404, { detail: `No fake route for ${key}` })
     if (reply instanceof Failure) return json(reply.status, { detail: reply.detail })
     return json(200, reply)

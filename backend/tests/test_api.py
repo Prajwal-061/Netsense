@@ -688,6 +688,60 @@ def test_collect_disconnects_when_a_command_fails(client, switch_id, switch_ssh)
 # --- CORS ------------------------------------------------------------------
 
 
+def test_cors_allows_every_method_the_api_uses(client):
+    # Regression: PUT /baseline was refused at the preflight ("Disallowed
+    # CORS method"), and the dashboard could only report "API not reachable".
+    from app.main import ALLOWED_METHODS, app
+
+    used = {method for route in app.routes for method in getattr(route, "methods", set())} - {"HEAD"}
+    assert used <= set(ALLOWED_METHODS)
+
+    for method, path in [("PUT", "/baseline"), ("POST", "/drift-checks"), ("POST", "/collections"), ("GET", "/devices")]:
+        preflight = client.options(
+            path,
+            headers={
+                "Origin": "http://localhost:5173",
+                "Access-Control-Request-Method": method,
+                "Access-Control-Request-Headers": "content-type",
+            },
+        )
+        assert preflight.status_code == 200, (method, path, preflight.text)
+        assert preflight.headers["access-control-allow-origin"] == "http://localhost:5173"
+
+
+def test_error_responses_carry_cors_headers_so_the_browser_can_read_them(client):
+    response = client.get("/devices/999", headers={"Origin": "http://localhost:5173"})
+
+    assert response.status_code == 404
+    assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
+
+
+def test_an_unhandled_error_is_a_json_500_with_cors_headers(engine):
+    from fastapi.testclient import TestClient
+
+    from app.api.deps import get_session
+    from app.main import app
+
+    def broken_session():
+        raise RuntimeError("database exploded: SELECT secret FROM somewhere")
+        yield  # pragma: no cover
+
+    app.dependency_overrides[get_session] = broken_session
+    try:
+        client = TestClient(app, raise_server_exceptions=False)
+        response = client.get("/devices", headers={"Origin": "http://localhost:5173"})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 500
+    assert response.headers["access-control-allow-origin"] == "http://localhost:5173"
+    assert response.json() == {
+        "detail": "Internal server error (RuntimeError) while handling GET /devices. The full error is in the backend's log."
+    }
+    # The exception's own text (SQL, addresses, config) stays in the log.
+    assert "SELECT" not in response.text
+
+
 def test_cors_allows_the_frontend_dev_server_only(client):
     preflight = {"Access-Control-Request-Method": "POST"}
 
