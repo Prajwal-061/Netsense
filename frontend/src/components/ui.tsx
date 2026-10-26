@@ -2,6 +2,7 @@
 
 import type { ButtonHTMLAttributes, ReactNode } from 'react'
 import { ApiError } from '../api'
+import { formatDateTime, timeAgo } from '../format'
 import type { ScanStatus } from '../api'
 
 type Tone = 'green' | 'red' | 'amber' | 'blue' | 'indigo' | 'violet' | 'cyan' | 'slate'
@@ -218,6 +219,67 @@ export function TableScroll({ children }: { children: ReactNode }) {
   return (
     <div className="overflow-x-auto">
       <table className="min-w-full divide-y divide-slate-200">{children}</table>
+    </div>
+  )
+}
+
+// --- design system primitives (docs/ui-design.md) ----------------------------
+
+export type Status = 'ok' | 'warn' | 'crit' | 'unknown' | 'accent'
+
+const DOT: Record<Status, string> = {
+  ok: 'bg-ok',
+  warn: 'bg-warn',
+  crit: 'bg-crit',
+  unknown: 'bg-unknown',
+  accent: 'bg-accent',
+}
+
+/** An 8px dot in a status colour, always with text next to it. */
+export function StatusDot({ status, children, title }: { status: Status; children?: ReactNode; title?: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 whitespace-nowrap" title={title}>
+      <span aria-hidden="true" className={`h-2 w-2 shrink-0 rounded-full ${DOT[status]}`} />
+      {children}
+    </span>
+  )
+}
+
+/** "12 min ago", with the exact local time on hover. */
+export function RelativeTime({ iso, className = '' }: { iso: string; className?: string }) {
+  return (
+    <time dateTime={iso} title={formatDateTime(iso)} className={className}>
+      {timeAgo(iso)}
+    </time>
+  )
+}
+
+const BAR: Record<'crit' | 'warn' | 'info', string> = {
+  crit: 'border-crit',
+  warn: 'border-warn',
+  info: 'border-accent',
+}
+
+/** A one-line message with a coloured left edge. Replaces large alert boxes. */
+export function MessageBar({
+  tone,
+  title,
+  children,
+  action,
+}: {
+  tone: 'crit' | 'warn' | 'info'
+  title?: ReactNode
+  children?: ReactNode
+  action?: ReactNode
+}) {
+  return (
+    <div
+      role={tone === 'info' ? 'status' : 'alert'}
+      className={`flex min-h-8 flex-wrap items-center gap-x-3 gap-y-1 border-b border-l-[3px] border-b-line bg-surface px-3 py-1.5 ${BAR[tone]}`}
+    >
+      {title && <span className="font-medium text-fg">{title}</span>}
+      {children && <span className="min-w-0 text-fg-muted">{children}</span>}
+      {action && <span className="ml-auto">{action}</span>}
     </div>
   )
 }

@@ -1,7 +1,88 @@
 @import 'tailwindcss';
 
+/* IBM Plex, bundled with the app so it works without internet access. */
+@import '@fontsource/ibm-plex-sans/400.css';
+@import '@fontsource/ibm-plex-sans/500.css';
+@import '@fontsource/ibm-plex-sans/600.css';
+@import '@fontsource/ibm-plex-mono/400.css';
+@import '@fontsource/ibm-plex-mono/500.css';
+
+/*
+ * Design tokens: see docs/ui-design.md. Every colour is a variable that the
+ * theme switches; Tailwind utilities (bg-surface, text-fg-muted, border-line,
+ * text-crit, ...) read them, so components never name a raw colour.
+ */
+@theme inline {
+  --font-sans: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', monospace;
+
+  --color-canvas: var(--ns-canvas);
+  --color-surface: var(--ns-surface);
+  --color-raised: var(--ns-raised);
+  --color-line: var(--ns-line);
+  --color-line-strong: var(--ns-line-strong);
+  --color-fg: var(--ns-fg);
+  --color-fg-muted: var(--ns-fg-muted);
+  --color-fg-subtle: var(--ns-fg-subtle);
+  --color-accent: var(--ns-accent);
+  --color-accent-soft: color-mix(in srgb, var(--ns-accent) 14%, transparent);
+  --color-ok: var(--ns-ok);
+  --color-ok-soft: color-mix(in srgb, var(--ns-ok) 12%, transparent);
+  --color-warn: var(--ns-warn);
+  --color-warn-soft: color-mix(in srgb, var(--ns-warn) 12%, transparent);
+  --color-crit: var(--ns-crit);
+  --color-crit-soft: color-mix(in srgb, var(--ns-crit) 12%, transparent);
+  --color-unknown: var(--ns-unknown);
+
+  --shadow-float: var(--ns-shadow);
+}
+
+:root,
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --ns-canvas: #0e1116;
+  --ns-surface: #151a21;
+  --ns-raised: #1c232c;
+  --ns-line: #252c36;
+  --ns-line-strong: #343d49;
+  --ns-fg: #d6dce3;
+  --ns-fg-muted: #8a95a3;
+  --ns-fg-subtle: #5e6875;
+  --ns-accent: #4b93f2;
+  --ns-ok: #3fb950;
+  --ns-warn: #d29922;
+  --ns-crit: #f0524a;
+  --ns-unknown: #6e7781;
+  --ns-shadow: 0 8px 24px rgb(0 0 0 / 0.35);
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --ns-canvas: #f5f6f8;
+  --ns-surface: #ffffff;
+  --ns-raised: #eef1f4;
+  --ns-line: #dde2e7;
+  --ns-line-strong: #c4cbd3;
+  --ns-fg: #1b2027;
+  --ns-fg-muted: #59626d;
+  --ns-fg-subtle: #8b949e;
+  --ns-accent: #1f6feb;
+  --ns-ok: #1a7f37;
+  --ns-warn: #9a6700;
+  --ns-crit: #cf222e;
+  --ns-unknown: #6e7781;
+  --ns-shadow: 0 8px 24px rgb(0 0 0 / 0.12);
+}
+
 body {
-  @apply bg-slate-100 text-slate-900 antialiased;
+  @apply bg-canvas font-sans text-fg antialiased;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+/* Tabular figures: digits all the same width, so numbers line up in columns. */
+.tabular {
+  font-variant-numeric: tabular-nums;
 }
 
 /* Moving bar for work with no known percentage (a running scan). */
@@ -18,9 +99,23 @@ body {
   animation: indeterminate 1.4s ease-in-out infinite;
 }
 
+/* Placeholder rows while data loads. */
+@keyframes skeleton-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.skeleton {
+  animation: skeleton-pulse 1.6s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .progress-indeterminate {
     animation: none;
     width: 100%;
+  }
+  .skeleton {
+    animation: none;
   }
 }

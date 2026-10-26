@@ -844,7 +844,8 @@ test('logging out ends the session and shows the login page', async () => {
   })
   const user = open('/devices')
 
-  await user.click(await screen.findByRole('button', { name: 'Log out' }))
+  await user.click(await screen.findByRole('button', { name: 'User menu' }))
+  await user.click(screen.getByRole('menuitem', { name: 'Log out' }))
 
   expect(await screen.findByRole('button', { name: 'Log in' })).toBeInTheDocument()
   expect(api.calls).toContain('POST /auth/logout')
