@@ -15,6 +15,7 @@ import {
   useScans,
   useWatchForExpiredSession,
 } from '../queries'
+import { LogoMark, Wordmark } from './Logo'
 import { Loading, MessageBar, RelativeTime, Spinner, StatusDot } from './ui'
 import type { Status } from './ui'
 
@@ -77,8 +78,8 @@ function Sidebar({ className, onNavigate }: { className: string; onNavigate?: ()
   return (
     <aside className={`${className} w-52 shrink-0 flex-col border-r border-line bg-surface`}>
       <Link to="/" className="flex h-11 shrink-0 items-center gap-2 border-b border-line px-3.5">
-        <img src="/favicon.svg" alt="" className="h-5 w-5" />
-        <span className="text-[15px] font-semibold tracking-tight text-fg">NetSense</span>
+        <LogoMark size={20} />
+        <Wordmark className="text-[15px]" />
       </Link>
       <nav aria-label="Main" className="flex flex-col py-2">
         {NAV.map((item) => (

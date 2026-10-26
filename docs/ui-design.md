@@ -129,6 +129,23 @@ Numbers in tables use tabular figures so columns line up.
   one, the action that fills it ("No collections yet. Collect from all
   devices").
 
+## Brand
+
+- **Mark:** an "N" drawn as a network path: four nodes, three links, on an
+  accent tile with 7/32 corner radius. The top-right node has a faint ring,
+  the "sense". Files: `frontend/src/components/Logo.tsx`,
+  `frontend/public/favicon.svg`.
+- **Wordmark:** "Net" in `fg`, "Sense" in `accent`, IBM Plex Sans 600, -0.01em.
+- **Login:** the only page with a decorative background: a faint, seeded
+  network graph (`NetworkBackdrop.tsx`) that fades out behind the form.
+
+## Motion
+
+Subtle and functional only: 150 ms colour transitions on hover; a slow pulse
+on things that are live (a running scan's dot, login backdrop hubs); slowly
+moving dashes on healthy topology links. Everything that moves stops under
+`prefers-reduced-motion`.
+
 ## Copy
 
 - Labels, not sentences. "Last scan", not "This is when the last scan ran".

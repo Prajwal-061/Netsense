@@ -1,10 +1,13 @@
 import { useState } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { Button, ErrorBox, Loading } from '../components/ui'
-import { useLogin, useMe } from '../queries'
+import { LogoMark, Wordmark } from '../components/Logo'
+import NetworkBackdrop from '../components/NetworkBackdrop'
+import { Button, ErrorBox, FieldLabel, Loading, StatusDot, TextInput } from '../components/ui'
+import { useHealth, useLogin, useMe } from '../queries'
 
 export default function Login() {
   const me = useMe()
+  const health = useHealth()
   const login = useLogin()
   const navigate = useNavigate()
   const location = useLocation()
@@ -18,47 +21,57 @@ export default function Login() {
   if (me.data) return <Navigate to={destination} replace />
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-100 px-4">
+    <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-canvas px-4">
+      <NetworkBackdrop />
       <form
-        className="w-full max-w-sm space-y-4 rounded-lg border border-slate-200 bg-white p-6 shadow-sm"
+        className="relative w-full max-w-[340px] rounded border border-line bg-surface p-6 shadow-float"
         onSubmit={(event) => {
           event.preventDefault()
           login.mutate({ username, password }, { onSuccess: () => void navigate(destination, { replace: true }) })
         }}
       >
-        <div className="flex items-center gap-2">
-          <img src="/favicon.svg" alt="" className="h-7 w-7" />
-          <h1 className="text-lg font-semibold text-slate-900">NetSense</h1>
+        <div className="mb-6 flex items-center gap-2.5">
+          <LogoMark size={32} />
+          <div className="leading-tight">
+            <Wordmark className="block text-[19px]" />
+            <span className="text-[12px] text-fg-muted">Network discovery &amp; diagnostics</span>
+          </div>
         </div>
-        <p className="text-sm text-slate-600">Log in as the admin to use the dashboard.</p>
-        <label className="block text-sm font-medium text-slate-700">
-          Username
-          <input
-            value={username}
-            onChange={(event) => setUsername(event.target.value)}
-            autoComplete="username"
-            required
-            className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-          />
-        </label>
-        <label className="block text-sm font-medium text-slate-700">
-          Password
-          <input
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            autoComplete="current-password"
-            autoFocus
-            required
-            className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-          />
-        </label>
-        {login.isError && <ErrorBox error={login.error} />}
-        {me.isError && <ErrorBox error={me.error} />}
-        <Button type="submit" busy={login.isPending} className="w-full">
-          Log in
-        </Button>
+        <div className="space-y-3">
+          <label className="block">
+            <FieldLabel>Username</FieldLabel>
+            <TextInput
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
+              autoComplete="username"
+              required
+              className="mt-1 block h-8 w-full"
+            />
+          </label>
+          <label className="block">
+            <FieldLabel>Password</FieldLabel>
+            <TextInput
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              autoComplete="current-password"
+              autoFocus
+              required
+              className="mt-1 block h-8 w-full"
+            />
+          </label>
+          {login.isError && <ErrorBox error={login.error} />}
+          {me.isError && <ErrorBox error={me.error} />}
+          <Button type="submit" busy={login.isPending} className="h-8 w-full">
+            Log in
+          </Button>
+        </div>
       </form>
+      <p className="relative mt-4 text-[12px] text-fg-subtle">
+        <StatusDot status={health.isError ? 'crit' : health.data ? 'ok' : 'unknown'}>
+          {health.isError ? 'API offline' : health.data ? 'API online' : 'Connecting to the API'}
+        </StatusDot>
+      </p>
     </div>
   )
 }
