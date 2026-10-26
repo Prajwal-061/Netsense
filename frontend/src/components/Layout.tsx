@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Link, Navigate, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { ApiError, REQUIRED_API_REVISION } from '../api'
@@ -15,6 +15,8 @@ import {
   useScans,
   useWatchForExpiredSession,
 } from '../queries'
+import CommandPalette from './CommandPalette'
+import { useCommandPaletteShortcut } from './shortcuts'
 import { LogoMark, Wordmark } from './Logo'
 import { Loading, MessageBar, RelativeTime, Spinner, StatusDot } from './ui'
 import type { Status } from './ui'
@@ -45,6 +47,9 @@ export default function Layout() {
 function Shell({ username }: { username?: string }) {
   useRefreshWhenScanFinishes()
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [searching, setSearching] = useState(false)
+  const openSearch = useCallback(() => setSearching(true), [])
+  useCommandPaletteShortcut(openSearch)
 
   return (
     <div className="flex h-screen overflow-hidden">
@@ -62,12 +67,13 @@ function Shell({ username }: { username?: string }) {
         </div>
       )}
       <div className="flex min-w-0 flex-1 flex-col">
-        <TopBar username={username} onOpenNavigation={() => setDrawerOpen(true)} />
+        <TopBar username={username} onOpenNavigation={() => setDrawerOpen(true)} onSearch={openSearch} />
         <StatusBars />
         <main className="min-h-0 flex-1 overflow-auto px-4 py-3">
           <Outlet />
         </main>
       </div>
+      {searching && <CommandPalette onClose={() => setSearching(false)} />}
     </div>
   )
 }
@@ -107,7 +113,15 @@ function Sidebar({ className, onNavigate }: { className: string; onNavigate?: ()
 
 // --- top bar -------------------------------------------------------------------
 
-function TopBar({ username, onOpenNavigation }: { username?: string; onOpenNavigation: () => void }) {
+function TopBar({
+  username,
+  onOpenNavigation,
+  onSearch,
+}: {
+  username?: string
+  onOpenNavigation: () => void
+  onSearch: () => void
+}) {
   const health = useHealth()
   const { data: collections } = useCollections()
   const collecting = collections?.find((run) => run.status === 'running')
@@ -125,6 +139,17 @@ function TopBar({ username, onOpenNavigation }: { username?: string; onOpenNavig
       <LastScan />
       <BaselineStatus />
       <div className="ml-auto flex items-center gap-4">
+        <button
+          type="button"
+          onClick={onSearch}
+          aria-label="Search"
+          title="Search devices and pages (Ctrl+K)"
+          className="flex h-7 items-center gap-2 rounded border border-line px-2 text-fg-subtle hover:border-line-strong hover:text-fg-muted"
+        >
+          <Icon name="search" />
+          <span className="hidden lg:inline">Search</span>
+          <kbd className="hidden rounded-[2px] border border-line px-1 font-mono text-[10px] lg:inline">Ctrl K</kbd>
+        </button>
         {collecting && (
           <Link to="/collections" className="flex items-center gap-1.5 text-accent hover:underline">
             <Spinner className="h-3 w-3" />
@@ -317,9 +342,15 @@ function BarButton({ children, onClick }: { children: ReactNode; onClick: () => 
 
 // --- icons (16px, stroke) ---------------------------------------------------------
 
-type IconName = 'overview' | 'topology' | 'devices' | 'scans' | 'collections' | 'health' | 'menu' | 'sun' | 'moon' | 'chevron'
+type IconName = 'search' | 'overview' | 'topology' | 'devices' | 'scans' | 'collections' | 'health' | 'menu' | 'sun' | 'moon' | 'chevron'
 
 const PATHS: Record<IconName, ReactNode> = {
+  search: (
+    <>
+      <circle cx="7" cy="7" r="4.5" />
+      <path d="M10.5 10.5L14 14" />
+    </>
+  ),
   overview: <path d="M2.5 2.5h4.5v4.5H2.5zM9 2.5h4.5v4.5H9zM2.5 9h4.5v4.5H2.5zM9 9h4.5v4.5H9z" />,
   topology: (
     <>

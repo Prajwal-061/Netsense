@@ -850,3 +850,42 @@ test('logging out ends the session and shows the login page', async () => {
   expect(await screen.findByRole('button', { name: 'Log in' })).toBeInTheDocument()
   expect(api.calls).toContain('POST /auth/logout')
 })
+
+// --- command palette -----------------------------------------------------------
+
+test('Ctrl+K finds a device by hostname, IP or MAC and opens it', async () => {
+  installFakeApi({ 'GET /topology': TOPOLOGY, 'GET /devices/2': SWITCH_DEVICE })
+  const user = open('/')
+  await screen.findByRole('heading', { name: 'Overview' })
+
+  await user.keyboard('{Control>}k{/Control}')
+  const search = await screen.findByRole('combobox')
+  // By hostname (known from the topology).
+  await user.type(search, 'sw1')
+  expect(await screen.findByRole('option', { name: /SW1/ })).toHaveAttribute('aria-selected', 'true')
+  // By MAC in Cisco notation.
+  await user.clear(search)
+  await user.type(search, 'aabb.cc80.0100')
+  const options = screen.getAllByRole('option')
+  expect(options).toHaveLength(1)
+  expect(options[0]).toHaveTextContent('192.168.17.10')
+
+  await user.keyboard('{Enter}')
+  expect(await screen.findByRole('heading', { name: 'Classification' })).toBeInTheDocument()
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+})
+
+test('the palette also jumps to pages, and Escape closes it', async () => {
+  installFakeApi({ 'GET /topology': TOPOLOGY })
+  const user = open('/')
+  await user.click(await screen.findByRole('button', { name: 'Search' }))
+
+  await user.type(screen.getByRole('combobox'), 'net')
+  await user.keyboard('{Escape}')
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+  await user.keyboard('{Control>}k{/Control}')
+  await user.type(await screen.findByRole('combobox'), 'collec')
+  await user.keyboard('{ArrowDown}{ArrowUp}{Enter}')
+  expect(await screen.findByRole('heading', { name: 'Collections' })).toBeInTheDocument()
+})
