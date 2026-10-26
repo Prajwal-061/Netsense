@@ -22,6 +22,27 @@ from app.engine import classifier, discovery, scanner
 _start_lock = threading.Lock()
 
 
+# Which step each running scan of this process is on, for the live progress
+# view: {scan_id: {"step", "step_started_at", "hosts_found"}}. In memory
+# only: it describes work in progress and is dropped when the scan ends.
+_progress: dict[int, dict] = {}
+_progress_lock = threading.Lock()
+
+STEPS = ("discovery", "services", "saving")
+
+
+def _set_step(scan_id: int, step: str, hosts_found: int | None = None) -> None:
+    with _progress_lock:
+        _progress[scan_id] = {"step": step, "step_started_at": utcnow(), "hosts_found": hosts_found}
+
+
+def scan_progress(scan_id: int) -> dict | None:
+    """The step a running scan is on, or None if this process is not running it."""
+    with _progress_lock:
+        entry = _progress.get(scan_id)
+        return dict(entry) if entry else None
+
+
 class ScanInProgressError(Exception):
     """A scan is already running, so another one may not start."""
 
@@ -184,10 +205,13 @@ def execute_scan(
     is then left in the database with status "failed" and the error message.
     """
     try:
+        _set_step(scan.id, "discovery")
         devices = discovery.arp_scan(scan.subnet, interface, allowed=allowed)
+        _set_step(scan.id, "services", len(devices))
         scans = scanner.scan_hosts(
             [device["ip"] for device in devices], top_ports, host_timeout, allowed
         )
+        _set_step(scan.id, "saving", len(devices))
         save_results(session, scan, classifier.classify_all(devices, scans))
         scan.status = Scan.STATUS_COMPLETED
         scan.finished_at = utcnow()
@@ -202,6 +226,9 @@ def execute_scan(
         scan.error = str(exc) or type(exc).__name__
         session.commit()
         raise
+    finally:
+        with _progress_lock:
+            _progress.pop(scan.id, None)
 
     return compare_scans(scan, previous_scan(session, scan))
 

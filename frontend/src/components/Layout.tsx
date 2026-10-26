@@ -127,7 +127,7 @@ function TopBar({
   const collecting = collections?.find((run) => run.status === 'running')
 
   return (
-    <header className="flex h-11 shrink-0 items-center gap-5 border-b border-line bg-surface px-3 text-[13px]">
+    <header className="flex h-11 shrink-0 items-center gap-3 border-b border-line bg-surface px-3 text-[13px] sm:gap-5">
       <button
         type="button"
         onClick={onOpenNavigation}
@@ -138,7 +138,7 @@ function TopBar({
       </button>
       <LastScan />
       <BaselineStatus />
-      <div className="ml-auto flex items-center gap-4">
+      <div className="ml-auto flex items-center gap-3 sm:gap-4">
         <button
           type="button"
           onClick={onSearch}
@@ -151,9 +151,9 @@ function TopBar({
           <kbd className="hidden rounded-[2px] border border-line px-1 font-mono text-[10px] lg:inline">Ctrl K</kbd>
         </button>
         {collecting && (
-          <Link to="/collections" className="flex items-center gap-1.5 text-accent hover:underline">
+          <Link to="/collections" className="flex items-center gap-1.5 whitespace-nowrap text-accent hover:underline" title="Collection running">
             <Spinner className="h-3 w-3" />
-            Collecting {collecting.device_count - collecting.pending}/{collecting.device_count}
+            <span className="hidden sm:inline">Collecting</span> {collecting.device_count - collecting.pending}/{collecting.device_count}
           </Link>
         )}
         <span
@@ -180,7 +180,7 @@ function LastScan() {
     return (
       <Link to={`/scans/${running.id}`} className="flex items-center gap-1.5 whitespace-nowrap text-accent hover:underline">
         <Spinner className="h-3 w-3" />
-        Scan #{running.id} running
+        <span className="hidden sm:inline">Scan</span> #{running.id} <span className="hidden sm:inline">running</span>
       </Link>
     )
   }

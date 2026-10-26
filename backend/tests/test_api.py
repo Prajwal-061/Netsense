@@ -173,6 +173,36 @@ def test_second_scan_reports_changes(client):
     ]
 
 
+def test_scan_progress_reports_each_step_while_running_and_nothing_after(client):
+    from app.services import scan_service
+
+    seen = []
+
+    def record(step):
+        def side_effect(*args, **kwargs):
+            seen.append((step, scan_service.scan_progress(scan_id)))
+            return {"arp": [{"ip": "192.168.17.10", "mac": "aa:bb:cc:00:01:00", "vendor": "Unknown"}],
+                    "nmap": [{"ip": "192.168.17.10", "ports": [], "timed_out": False}]}[step]
+        return side_effect
+
+    scan_id = None
+    with (
+        patch.object(discovery, "arp_scan", side_effect=record("arp")),
+        patch.object(scanner, "scan_hosts", side_effect=record("nmap")),
+    ):
+        # Known before the background task runs: the next id.
+        scan_id = len(client.get("/scans").json()) + 1
+        assert client.post("/scans").json()["id"] == scan_id
+
+    assert [(step, p["step"], p["hosts_found"]) for step, p in seen] == [
+        ("arp", "discovery", None),
+        ("nmap", "services", 1),
+    ]
+    body = client.get(f"/scans/{scan_id}/progress").json()
+    assert body == {"scan_id": scan_id, "status": "completed", "step": None, "step_started_at": None, "hosts_found": None}
+    assert client.get("/scans/999/progress").status_code == 404
+
+
 def test_second_scan_is_refused_while_one_is_running(client, session):
     session.add(Scan(subnet="192.168.17.0/24", status=Scan.STATUS_RUNNING))
     session.commit()

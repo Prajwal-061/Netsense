@@ -95,6 +95,17 @@ class ScanSummary(BaseModel):
     device_count: int
 
 
+class ScanProgress(BaseModel):
+    scan_id: int
+    status: str = Field(description="running, completed or failed")
+    step: str | None = Field(
+        description="discovery (ARP), services (Nmap) or saving (classify and save). "
+        "Null when the scan is not running, or runs in another process (a script)."
+    )
+    step_started_at: datetime | None
+    hosts_found: int | None = Field(description="Devices that answered ARP, once discovery is done.")
+
+
 class ScanDetail(ScanSummary):
     results: list[ScanResult]
     changes: ChangeReport | None = Field(description="Null unless the scan completed.")

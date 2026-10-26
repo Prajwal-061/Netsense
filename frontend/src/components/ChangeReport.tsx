@@ -1,56 +1,52 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import type { ChangeReport, DeviceChange } from '../api'
-import { TypeBadge } from './ui'
+import type { Status } from './ui'
+import { StatusDot, TypeBadge } from './ui'
 
 /** What changed between a scan and the one before it. */
 export default function ChangeReportView({ report }: { report: ChangeReport }) {
   if (report.previous_scan_id === null) {
-    return (
-      <p className="px-4 py-4 text-sm text-slate-600">
-        This was the first scan of this subnet, so it is the baseline. Changes are reported from
-        the next scan onwards.
-      </p>
-    )
+    return <p className="px-3 py-3 text-fg-muted">First scan of this subnet: the starting point for later comparisons.</p>
   }
 
   const previous = (
-    <Link to={`/scans/${report.previous_scan_id}`} className="font-medium text-blue-700 hover:underline">
+    <Link to={`/scans/${report.previous_scan_id}`} className="text-accent hover:underline">
       scan #{report.previous_scan_id}
     </Link>
   )
-  const total =
-    report.new_devices.length + report.missing_devices.length + report.ip_changes.length
+  const total = report.new_devices.length + report.missing_devices.length + report.ip_changes.length
   if (total === 0) {
     return (
-      <p className="flex items-center gap-2 px-4 py-4 text-sm text-emerald-800">
-        <span className="h-2 w-2 rounded-full bg-emerald-500" />
-        <span>No changes since {previous}.</span>
+      <p className="px-3 py-3">
+        <StatusDot status="ok">
+          <span className="text-fg-muted">No changes since {previous}.</span>
+        </StatusDot>
       </p>
     )
   }
 
   return (
     <div>
-      <p className="px-4 pt-3 text-xs text-slate-500">Compared with {previous}</p>
-      <div className="grid gap-3 p-4 md:grid-cols-3">
-        <Group label="New devices" count={report.new_devices.length} tone="green">
+      <p className="px-3 pt-2 text-xs text-fg-muted">Compared with {previous}</p>
+      <div className="grid md:grid-cols-3 md:divide-x md:divide-line">
+        <Group label="New devices" count={report.new_devices.length} tone="ok">
           {report.new_devices.map((device) => (
             <DeviceLine key={device.mac} device={device} />
           ))}
         </Group>
-        <Group label="No longer seen" count={report.missing_devices.length} tone="red">
+        <Group label="No longer seen" count={report.missing_devices.length} tone="crit">
           {report.missing_devices.map((device) => (
             <DeviceLine key={device.mac} device={device} />
           ))}
         </Group>
-        <Group label="IP address changed" count={report.ip_changes.length} tone="amber">
+        <Group label="IP address changed" count={report.ip_changes.length} tone="warn">
           {report.ip_changes.map((change) => (
-            <li key={change.mac} className="py-2">
-              <p className="font-mono text-sm">
-                {change.old_ip} <span className="text-slate-400">to</span> {change.new_ip}
+            <li key={change.mac} className="py-1.5">
+              <p className="font-mono text-xs text-fg">
+                {change.old_ip} <span className="font-sans text-fg-subtle">to</span> {change.new_ip}
               </p>
-              <p className="mt-0.5 text-xs text-slate-500">
+              <p className="truncate text-[11px] text-fg-muted">
                 <span className="font-mono">{change.mac}</span> · {change.vendor}
               </p>
             </li>
@@ -61,53 +57,31 @@ export default function ChangeReportView({ report }: { report: ChangeReport }) {
   )
 }
 
-const GROUP_TONES = {
-  green: { box: 'border-emerald-200 bg-emerald-50/60', count: 'bg-emerald-600' },
-  red: { box: 'border-red-200 bg-red-50/60', count: 'bg-red-600' },
-  amber: { box: 'border-amber-200 bg-amber-50/60', count: 'bg-amber-500' },
-}
-
-function Group({
-  label,
-  count,
-  tone,
-  children,
-}: {
-  label: string
-  count: number
-  tone: keyof typeof GROUP_TONES
-  children: ReactNode
-}) {
+function Group({ label, count, tone, children }: { label: string; count: number; tone: Status; children: ReactNode }) {
   const active = count > 0
   return (
-    <div className={`rounded-lg border p-3 ${active ? GROUP_TONES[tone].box : 'border-slate-200 bg-slate-50'}`}>
+    <div className="px-3 py-2">
       <div className="flex items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold text-slate-800">{label}</h3>
-        <span
-          className={`min-w-6 rounded-full px-2 py-0.5 text-center text-xs font-semibold text-white ${
-            active ? GROUP_TONES[tone].count : 'bg-slate-400'
-          }`}
-        >
-          {count}
-        </span>
+        <h3 className="text-[11px] font-medium tracking-wide text-fg-muted uppercase">
+          <StatusDot status={active ? tone : 'unknown'}>{label}</StatusDot>
+        </h3>
+        <span className={`tabular text-xs ${active ? 'text-fg' : 'text-fg-subtle'}`}>{count}</span>
       </div>
-      {active ? (
-        <ul className="mt-1 divide-y divide-slate-200/70">{children}</ul>
-      ) : (
-        <p className="mt-2 text-xs text-slate-500">None</p>
-      )}
+      {active ? <ul className="mt-1 divide-y divide-line">{children}</ul> : <p className="mt-1 text-xs text-fg-subtle">None</p>}
     </div>
   )
 }
 
 function DeviceLine({ device }: { device: DeviceChange }) {
   return (
-    <li className="py-2">
-      <p className="flex flex-wrap items-center gap-2">
-        <span className="font-mono text-sm">{device.ip}</span>
-        <TypeBadge type={device.type} />
+    <li className="py-1.5">
+      <p className="flex flex-wrap items-center gap-x-2">
+        <span className="font-mono text-xs text-fg">{device.ip}</span>
+        <span className="text-xs text-fg-muted">
+          <TypeBadge type={device.type} />
+        </span>
       </p>
-      <p className="mt-0.5 text-xs text-slate-500">
+      <p className="truncate text-[11px] text-fg-muted">
         <span className="font-mono">{device.mac}</span> · {device.vendor}
       </p>
     </li>

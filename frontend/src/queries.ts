@@ -108,6 +108,16 @@ export function useScan(id: number | undefined) {
   })
 }
 
+/** The step a running scan is on, polled every second while it runs. */
+export function useScanProgress(id: number | undefined) {
+  return useQuery({
+    queryKey: ['scans', id, 'progress'],
+    queryFn: () => api.getScanProgress(id!),
+    enabled: id !== undefined,
+    refetchInterval: (query) => (query.state.data?.status === 'completed' || query.state.data?.status === 'failed' ? false : 1_000),
+  })
+}
+
 export function useStartScan() {
   const queryClient = useQueryClient()
   return useMutation({

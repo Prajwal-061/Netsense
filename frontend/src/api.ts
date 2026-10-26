@@ -10,7 +10,7 @@ export const API_URL: string = (
  * backend/app/api/health.py. A backend reporting a lower number (or none) is
  * running older code, usually because it was not restarted after an update.
  */
-export const REQUIRED_API_REVISION = 7
+export const REQUIRED_API_REVISION = 8
 
 export class ApiError extends Error {
   /** HTTP status code, or null when no answer could be read. */
@@ -92,6 +92,16 @@ export interface ScanSummary {
   finished_at: string | null
   error: string | null
   device_count: number
+}
+
+/** Which step a running scan is on (GET /scans/{id}/progress). */
+export interface ScanProgress {
+  scan_id: number
+  status: ScanStatus
+  /** Null when the scan is not running, or was started from a script (another process). */
+  step: 'discovery' | 'services' | 'saving' | null
+  step_started_at: string | null
+  hosts_found: number | null
 }
 
 export interface ScanDetail extends ScanSummary {
@@ -410,6 +420,7 @@ async function errorDetail(response: Response): Promise<string> {
 export const getHealth = () => request<Health>('/health')
 export const getScans = () => request<ScanSummary[]>('/scans')
 export const getScan = (id: number) => request<ScanDetail>(`/scans/${id}`)
+export const getScanProgress = (id: number) => request<ScanProgress>(`/scans/${id}/progress`)
 export const startScan = () => request<ScanSummary>('/scans', { method: 'POST' })
 export const getDevices = () => request<Device[]>('/devices')
 export const getDevice = (id: number) => request<Device>(`/devices/${id}`)

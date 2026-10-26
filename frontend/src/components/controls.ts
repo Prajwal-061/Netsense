@@ -1,7 +1,7 @@
 // Non-component helpers shared by the UI components (kept apart so that
 // component files only export components, which fast refresh needs).
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 export const inputClass =
   'h-7 rounded border border-line-strong bg-canvas px-2 text-[13px] text-fg placeholder:text-fg-subtle focus:border-accent focus:outline-none'
@@ -39,4 +39,20 @@ export function useSort<K extends string>(initial: K, initialDirection: 'asc' | 
     }),
     [key, direction],
   )
+}
+
+/** The current time, updated every `intervalMs`: for elapsed-time counters. */
+export function useNow(intervalMs = 1000): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), intervalMs)
+    return () => clearInterval(timer)
+  }, [intervalMs])
+  return now
+}
+
+/** "0:07", "1:32": an elapsed time in minutes and seconds. */
+export function clock(seconds: number): string {
+  const whole = Math.max(0, Math.round(seconds))
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`
 }

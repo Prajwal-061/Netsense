@@ -54,16 +54,16 @@ test('overview shows device counts, the last scan and the latest change report',
   installFakeApi()
   open('/')
 
-  const devices = await card('Devices')
-  expect(await devices.findByText('Known devices')).toBeInTheDocument()
-  expect(devices.getByText('Known devices').previousSibling).toHaveTextContent('4')
+  const kpis = within(await screen.findByRole('region', { name: 'Key figures' }))
+  await waitFor(() => expect(kpis.getByText('Known devices').nextElementSibling!.firstElementChild).toHaveTextContent(/^4$/))
   // Three devices were in the latest scan; the fourth was last seen earlier.
-  expect(devices.getByText('Up in the last scan').previousSibling).toHaveTextContent('3')
-  expect(devices.getByText('network device')).toBeInTheDocument()
+  expect(kpis.getByText('3 up in the last scan')).toBeInTheDocument()
+  // The sparkline: devices found by each completed scan, oldest first.
+  expect(kpis.getByRole('img', { name: /^Devices found per scan: / })).toBeInTheDocument()
+  expect((await card('Devices')).getByText('network device')).toBeInTheDocument()
 
-  const scanCard = await card('Scan')
-  expect(await scanCard.findByRole('link', { name: '#3' })).toBeInTheDocument()
-  expect(scanCard.getByText('completed')).toBeInTheDocument()
+  const events = await card('Recent events')
+  expect(await events.findByRole('link', { name: /Scan #3 found \d+ devices/ })).toHaveAttribute('href', '/scans/3')
 
   const changes = await card('Latest changes')
   const added = within((await changes.findByText('New devices')).closest('div')!.parentElement!)
@@ -85,6 +85,13 @@ test('starting a scan shows progress, then refreshes everything when it finishes
   expect(await screen.findByText(/Scan #4 is running/)).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: 'Start scan' })).not.toBeInTheDocument()
 
+  // The live console follows the scan's steps.
+  api.routes['GET /scans/4/progress'] = { scan_id: 4, status: 'running', step: 'services', step_started_at: new Date().toISOString(), hosts_found: 3 }
+  const done = await screen.findByText('3 devices answered', {}, { timeout: 3000 })
+  expect(done.closest('li')).toHaveTextContent('Done:ARP discovery')
+  expect(screen.getByText('Service scan (Nmap)').closest('li')).toHaveTextContent('Running:')
+  expect(screen.getByText('Classify and save').closest('li')).toHaveTextContent('Waiting:')
+
   // The scan finishes on the server. The page finds out by polling.
   const devicesFetchedBefore = api.calls.filter((call) => call === 'GET /devices').length
   api.routes['GET /scans'] = [scan(4, 'completed', { device_count: 4 }), scan(3, 'completed')]
@@ -95,7 +102,7 @@ test('starting a scan shows progress, then refreshes everything when it finishes
   await waitFor(() =>
     expect(api.calls.filter((call) => call === 'GET /devices').length).toBeGreaterThan(devicesFetchedBefore),
   )
-  expect(await (await card('Scan')).findByRole('link', { name: '#4' })).toBeInTheDocument()
+  expect(await (await card('Recent events')).findByRole('link', { name: /Scan #4 found 4 devices/ })).toBeInTheDocument()
 }, 15_000)
 
 test('a scan that is already running is explained, not shown as a crash', async () => {
@@ -104,7 +111,7 @@ test('a scan that is already running is explained, not shown as a crash', async 
 
   await user.click(await screen.findByRole('button', { name: 'Start scan' }))
 
-  expect(await screen.findByText(/A scan is already running/)).toHaveTextContent('Scan #7 is still running')
+  expect((await screen.findByText(/A scan is already running/)).closest('[role=alert]')).toHaveTextContent('Scan #7 is still running')
   expect(screen.queryByText('Request failed')).not.toBeInTheDocument()
 })
 

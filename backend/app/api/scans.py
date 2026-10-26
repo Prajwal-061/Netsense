@@ -112,6 +112,22 @@ def list_scans(
     return [schemas.ScanSummary(**_summary_fields(scan)) for scan in scans]
 
 
+@router.get("/{scan_id}/progress", response_model=schemas.ScanProgress)
+def get_scan_progress(scan_id: int, session: Session = Depends(get_session)):
+    """Which step a running scan is on, for the dashboard's live view. Read-only."""
+    scan = session.get(models.Scan, scan_id)
+    if scan is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Scan {scan_id} not found.")
+    progress = scan_service.scan_progress(scan_id) if scan.status == models.Scan.STATUS_RUNNING else None
+    return schemas.ScanProgress(
+        scan_id=scan.id,
+        status=scan.status,
+        step=progress["step"] if progress else None,
+        step_started_at=progress["step_started_at"] if progress else None,
+        hosts_found=progress["hosts_found"] if progress else None,
+    )
+
+
 @router.get("/{scan_id}", response_model=schemas.ScanDetail)
 def get_scan(scan_id: int, session: Session = Depends(get_session)):
     """One scan: status, what it saw, and what changed since the previous scan."""
