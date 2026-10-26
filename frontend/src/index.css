@@ -141,3 +141,48 @@ body {
     animation: none;
   }
 }
+
+/* Topology: dashes drifting along healthy links. */
+@keyframes link-flow {
+  to {
+    stroke-dashoffset: -24;
+  }
+}
+
+.link-flow {
+  animation: link-flow 1.6s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .link-flow {
+    animation: none;
+  }
+}
+
+/* React Flow controls and minimap in the NetSense theme. */
+.react-flow {
+  --xy-background-color: transparent;
+  --xy-controls-button-background-color: var(--ns-surface);
+  --xy-controls-button-background-color-hover: var(--ns-raised);
+  --xy-controls-button-color: var(--ns-fg-muted);
+  --xy-controls-button-color-hover: var(--ns-fg);
+  --xy-controls-button-border-color: var(--ns-line);
+  --xy-controls-box-shadow: none;
+  --xy-minimap-background-color: var(--ns-surface);
+  --xy-minimap-mask-background-color: color-mix(in srgb, var(--ns-canvas) 70%, transparent);
+  --xy-minimap-mask-stroke-color: var(--ns-line-strong);
+  --xy-minimap-node-background-color: var(--ns-line-strong);
+  --xy-attribution-background-color: transparent;
+}
+
+.react-flow__controls {
+  border: 1px solid var(--ns-line);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.react-flow__minimap {
+  border: 1px solid var(--ns-line);
+  border-radius: 4px;
+  overflow: hidden;
+}

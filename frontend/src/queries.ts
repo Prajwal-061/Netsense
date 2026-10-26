@@ -211,6 +211,14 @@ export function useDriftCheck(id: number | undefined) {
   })
 }
 
+/** The report of the most recent completed drift check, if any. */
+export function useLatestDriftReport() {
+  const checks = useDriftChecks()
+  const latest = checks.data?.find((check) => check.status === 'completed')
+  const check = useDriftCheck(latest?.id)
+  return { check: latest, report: check.data?.report ?? null, isPending: checks.isPending || (latest !== undefined && check.isPending) }
+}
+
 export function useStartDriftCheck() {
   const queryClient = useQueryClient()
   return useMutation({

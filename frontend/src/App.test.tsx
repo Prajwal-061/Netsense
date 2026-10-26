@@ -569,8 +569,8 @@ test('topology controls: VLAN highlight, management network and choosing a colle
   await user.selectOptions(screen.getByLabelText('Highlight VLAN'), '20')
   expect(screen.getByText(/carrying VLAN 20 are highlighted/)).toBeInTheDocument()
   // R2 is only reached over the routed link, which carries no VLAN.
-  await waitFor(() => expect(map.getByText('R2').closest('div[class*="rounded-lg"]')).toHaveClass('opacity-30'))
-  expect(map.getByText('SW2').closest('div[class*="rounded-lg"]')).not.toHaveClass('opacity-30')
+  await waitFor(() => expect(map.getByText('R2').closest('[data-node]')).toHaveClass('opacity-25'))
+  expect(map.getByText('SW2').closest('[data-node]')).not.toHaveClass('opacity-25')
 
   await user.click(screen.getByLabelText('Show management network'))
   expect(await map.findByText('Management network')).toBeInTheDocument()
@@ -583,14 +583,26 @@ test('topology controls: VLAN highlight, management network and choosing a colle
   expect(screen.getByText(/2 routers, 2 switches, 0 hosts, 4 links/)).toBeInTheDocument()
 })
 
-test('clicking a device on the map opens its page', async () => {
-  installFakeApi({ 'GET /topology': TOPOLOGY, 'GET /devices/2': SWITCH_DEVICE })
-  open('/topology')
+test('clicking a device on the map shows its details, with its health and links, and a link to its page', async () => {
+  installFakeApi({
+    'GET /topology': TOPOLOGY,
+    'GET /devices/2': SWITCH_DEVICE,
+    'GET /drift-checks': [driftCheck('completed')],
+    'GET /drift-checks/3': driftCheck('completed'),
+  })
+  const user = open('/topology')
 
   // A bare click event: the simulated mouse-down of user.click() lacks the
   // "view" every real browser event has, which React Flow's drag code reads.
-  fireEvent.click(await within(await screen.findByTestId('topology-map')).findByText('SW1'))
+  const map = within(await screen.findByTestId('topology-map'))
+  await waitFor(() => expect(map.getByText('R1').closest('[data-node]')).toHaveAttribute('data-health', 'crit'))
+  fireEvent.click(map.getByText('SW1'))
 
+  const panel = within(await screen.findByRole('complementary', { name: 'SW1 details' }))
+  const rows = panel.getAllByRole('listitem').map((row) => row.textContent)
+  expect(rows).toContain('Et0/1R1 Gi0/1trunk')
+  expect(rows).toContain('Et0/3SW2 Et0/2STP blocked')
+  await user.click(panel.getByRole('link', { name: 'Open device page' }))
   expect(await screen.findByRole('heading', { name: 'Classification' })).toBeInTheDocument()
   expect(screen.getByText('aa:bb:cc:80:01:00')).toBeInTheDocument()
 })
@@ -705,7 +717,7 @@ test('network health: a drift check runs, then shows causes, findings by device 
   // The map of the checked collection, with the changed devices outlined.
   const map = within(screen.getByTestId('topology-map'))
   expect(await map.findByText('R1')).toBeInTheDocument()
-  expect(map.getByText('R1').closest('div[class*="rounded-lg"]')).toHaveClass('ring-orange-400')
+  expect(map.getByText('R1').closest('[data-node]')).toHaveAttribute('data-changed')
   expect(screen.getByText('Changed since the baseline')).toBeInTheDocument()
 }, 20_000)
 

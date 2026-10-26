@@ -26,12 +26,16 @@ export default function LinkEdge({ sourceX, sourceY, targetX, targetY, data }: E
   const path = `M ${sourceX} ${sourceY} Q ${controlX} ${controlY} ${targetX} ${targetY}`
   const at = (t: number) => ({ x: along(t, sourceX, controlX, targetX), y: along(t, sourceY, controlY, targetY) })
   const middle = at(0.5)
+  // The tag sits just off the line (on the outside of a bend), so it never
+  // covers the interface labels of a short link.
+  const side = link.offset < 0 ? -1 : 1
+  const tagAt = { x: middle.x + (-dy / length) * 12 * side, y: middle.y + (dx / length) * 12 * side }
 
   const label = (text: string, point: { x: number; y: number }) =>
     text && (
       <span
-        className="pointer-events-none absolute rounded bg-white/90 px-1 font-mono text-[10px] leading-4 text-slate-700 ring-1 ring-slate-200"
-        style={{ transform: `translate(-50%, -50%) translate(${point.x}px, ${point.y}px)`, opacity: link.opacity }}
+        className="pointer-events-none absolute rounded-sm border border-line bg-canvas px-1 font-mono text-[10px] leading-[14px] text-fg-muted transition-opacity duration-200"
+        style={{ transform: `translate(-50%, -50%) translate(${point.x}px, ${point.y}px)`, opacity: Math.max(link.opacity, 0.15) }}
       >
         {text}
       </span>
@@ -39,7 +43,28 @@ export default function LinkEdge({ sourceX, sourceY, targetX, targetY, data }: E
 
   return (
     <>
-      <path d={path} fill="none" stroke={link.colour} strokeWidth={link.width} strokeDasharray={link.dash} opacity={link.opacity} />
+      <path
+        d={path}
+        fill="none"
+        stroke={link.colour}
+        strokeWidth={link.width}
+        strokeDasharray={link.dash}
+        opacity={link.opacity}
+        className="transition-opacity duration-200"
+      />
+      {/* Healthy links: a faint stream of dashes moving along the line. */}
+      {link.animated && (
+        <path
+          d={path}
+          fill="none"
+          stroke="var(--ns-ok)"
+          strokeWidth={link.width}
+          strokeDasharray="2 10"
+          strokeLinecap="round"
+          opacity={link.opacity * 0.7}
+          className="link-flow pointer-events-none transition-opacity duration-200"
+        />
+      )}
       {/* A wide invisible copy of the line, so it is easy to point at. */}
       <path
         d={path}
@@ -57,11 +82,12 @@ export default function LinkEdge({ sourceX, sourceY, targetX, targetY, data }: E
         {label(link.targetLabel, at(0.8))}
         {link.tag && (
           <span
-            className="pointer-events-none absolute rounded-full px-1.5 text-[10px] leading-4 font-semibold text-white"
+            className="pointer-events-none absolute rounded-sm border bg-canvas px-1 text-[10px] leading-[14px] font-medium transition-opacity duration-200"
             style={{
-              transform: `translate(-50%, -50%) translate(${middle.x}px, ${middle.y}px)`,
-              backgroundColor: link.colour,
-              opacity: link.opacity,
+              transform: `translate(-50%, -50%) translate(${tagAt.x}px, ${tagAt.y}px)`,
+              borderColor: link.colour,
+              color: link.colour,
+              opacity: Math.max(link.opacity, 0.15),
             }}
           >
             {link.tag}
@@ -69,12 +95,12 @@ export default function LinkEdge({ sourceX, sourceY, targetX, targetY, data }: E
         )}
         {hovered && (
           <div
-            className="pointer-events-none absolute z-50 w-max max-w-xs rounded-md bg-slate-900 px-3 py-2 text-xs text-slate-100 shadow-lg"
+            className="pointer-events-none absolute z-50 w-max max-w-xs rounded border border-line-strong bg-raised px-2.5 py-1.5 text-xs text-fg shadow-float"
             style={{ transform: `translate(-50%, -100%) translate(${middle.x}px, ${middle.y - 14}px)` }}
             role="tooltip"
           >
             {link.details.map((line, index) => (
-              <p key={index} className={index === 0 ? 'font-semibold' : 'text-slate-300'}>
+              <p key={index} className={index === 0 ? 'font-semibold' : 'font-mono text-[11px] text-fg-muted'}>
                 {line}
               </p>
             ))}

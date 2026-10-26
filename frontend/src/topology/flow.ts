@@ -3,6 +3,7 @@
 // every styling rule can be tested directly.
 
 import type { Topology, TopologyLink, TopologyNode } from '../api'
+import type { Health } from '../health'
 
 export const NODE_WIDTH = 168
 export const NODE_HEIGHT = 62
@@ -19,6 +20,12 @@ export interface FlowOptions {
   showManagement?: boolean
   /** Devices and links to mark as changed (a drift check's findings). */
   changed?: { nodes: string[]; links: string[] }
+  /** Health per node id, from the latest drift check. */
+  health?: Record<string, Health>
+  /** The node under the pointer: it and its neighbours stay bright, the rest fade. */
+  focus?: string | null
+  /** The node whose details are open. */
+  selected?: string | null
 }
 
 export interface FlowNodeData extends Record<string, unknown> {
@@ -31,6 +38,9 @@ export interface FlowNodeData extends Record<string, unknown> {
   dimmed: boolean
   /** Has drifted from the baseline. */
   changed: boolean
+  health: Health | null
+  faded: boolean
+  selected: boolean
 }
 
 export interface FlowNode {
@@ -52,6 +62,8 @@ export interface FlowEdgeData extends Record<string, unknown> {
   dash: string | undefined
   opacity: number
   tag: string | null
+  /** Healthy and forwarding: drawn with slowly moving dashes. */
+  animated: boolean
   /** Lines shown when the pointer is over the link. */
   details: string[]
 }
@@ -66,13 +78,14 @@ export interface FlowEdge {
   data: FlowEdgeData
 }
 
-const COLOURS = {
-  normal: '#64748b', // slate
-  down: '#dc2626', // red
-  ospf: '#7c3aed', // violet
-  vlan: '#2563eb', // blue
-  changed: '#ea580c', // orange
-  management: '#94a3b8',
+// Theme tokens, so the map follows the light and dark themes.
+export const COLOURS = {
+  normal: 'var(--ns-fg-subtle)',
+  down: 'var(--ns-crit)',
+  ospf: 'var(--ns-accent)',
+  vlan: 'var(--ns-accent)',
+  changed: 'var(--ns-warn)',
+  management: 'var(--ns-line-strong)',
 }
 
 // Routers at the top, then switches, then neighbours NetSense could not
@@ -176,7 +189,17 @@ export function linkDetails(link: TopologyLink, nodes: Map<string, TopologyNode>
 export function toFlow(topology: Topology, options: FlowOptions = {}): { nodes: FlowNode[]; edges: FlowEdge[] } {
   const byId = new Map(topology.nodes.map((node) => [node.id, node]))
   const positions = layout(topology.nodes, topology.links)
-  const { vlan } = options
+  const { vlan, focus } = options
+
+  // Hovering a node: it and its direct neighbours stay bright.
+  const near = new Set<string>()
+  if (focus) {
+    near.add(focus)
+    for (const link of topology.links) {
+      if (link.a.node === focus) near.add(link.b.node)
+      if (link.b.node === focus) near.add(link.a.node)
+    }
+  }
 
   // With a VLAN chosen: everything that carries it stays bright.
   const carries = (link: TopologyLink) => vlan !== undefined && link.vlans.includes(vlan)
@@ -203,6 +226,9 @@ export function toFlow(topology: Topology, options: FlowOptions = {}): { nodes: 
       notCollected: node.kind !== 'host' && node.kind !== 'unknown' && !node.collected,
       dimmed: vlan !== undefined && !lit.has(node.id),
       changed: options.changed?.nodes.includes(node.id) ?? false,
+      health: options.health?.[node.id] ?? null,
+      faded: Boolean(focus) && !near.has(node.id),
+      selected: options.selected === node.id,
     },
   }))
 
@@ -250,10 +276,16 @@ export function toFlow(topology: Topology, options: FlowOptions = {}): { nodes: 
         targetLabel: to.interface ?? '',
         offset,
         colour,
-        width: changed ? 3.5 : highlighted || link.ospf ? 3 : link.kind === 'host' ? 1.5 : 2,
-        dash: blocked ? '7 6' : undefined,
-        opacity: vlan !== undefined && !highlighted ? 0.18 : 1,
+        width: changed ? 2.5 : highlighted || link.ospf ? 2.25 : link.kind === 'host' ? 1.25 : 1.5,
+        dash: blocked ? '6 5' : undefined,
+        opacity:
+          (focus && link.a.node !== focus && link.b.node !== focus) || (vlan !== undefined && !highlighted)
+            ? 0.15
+            : blocked
+              ? 0.45
+              : 1,
         tag: link.status === 'down' ? 'down' : changed ? 'changed' : blocked ? 'STP blocked' : link.ospf ? 'OSPF' : null,
+        animated: link.status === 'up' && !blocked && !changed && link.kind === 'cdp',
         details: linkDetails(link, byId),
       },
     }
@@ -278,6 +310,9 @@ export function toFlow(topology: Topology, options: FlowOptions = {}): { nodes: 
         notCollected: false,
         dimmed: false,
         changed: false,
+        health: null,
+        faded: false,
+        selected: false,
       },
     })
     for (const member of topology.management.members) {
@@ -298,6 +333,7 @@ export function toFlow(topology: Topology, options: FlowOptions = {}): { nodes: 
           dash: '2 5',
           opacity: 1,
           tag: null,
+          animated: false,
           details: [
             `${nameOf(byId, member.node)} ${member.interface ?? ''} on the management network`,
             `Address ${member.ip}${member.vlan ? ` · VLAN ${member.vlan}` : ''}`,

@@ -316,12 +316,12 @@ export function Card({
 export const Section = Card
 
 /** Label / value pairs in columns: device facts, run details. */
-export function KeyValueGrid({ items, columns = 3 }: { items: [ReactNode, ReactNode][]; columns?: 2 | 3 | 4 }) {
-  const cols = { 2: 'sm:grid-cols-2', 3: 'sm:grid-cols-2 lg:grid-cols-3', 4: 'sm:grid-cols-2 lg:grid-cols-4' }[columns]
+export function KeyValueGrid({ items, columns = 3 }: { items: [ReactNode, ReactNode][]; columns?: 1 | 2 | 3 | 4 }) {
+  const cols = { 1: '', 2: 'sm:grid-cols-2', 3: 'sm:grid-cols-2 lg:grid-cols-3', 4: 'sm:grid-cols-2 lg:grid-cols-4' }[columns]
   return (
     <dl className={`grid grid-cols-1 gap-x-6 ${cols} px-3 py-2`}>
       {items.map(([label, value], index) => (
-        <div key={index} className="flex min-h-8 items-baseline gap-3 border-b border-line py-1.5 last:border-b-0 sm:[&:nth-last-child(-n+3)]:border-b-0">
+        <div key={index} className={`flex min-h-8 items-baseline gap-3 border-b border-line py-1.5 last:border-b-0 ${columns > 1 ? 'sm:[&:nth-last-child(-n+3)]:border-b-0' : ''}`}>
           <dt className="w-28 shrink-0 text-[11px] font-medium tracking-wide text-fg-muted uppercase">{label}</dt>
           <dd className="min-w-0 break-words text-fg">{value}</dd>
         </div>

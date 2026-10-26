@@ -98,13 +98,13 @@ test('blocked links are dashed, OSPF links highlighted, down links red', () => {
   const [forwarding, blocked] = edge(flow, 'dev:sw1', 'dev:sw2')
   const [ospf] = edge(flow, 'dev:r1', 'dev:r2')
 
-  expect([forwarding.data.dash, forwarding.data.tag, forwarding.data.colour]).toEqual([undefined, null, '#64748b'])
-  expect([blocked.data.dash, blocked.data.tag]).toEqual(['7 6', 'STP blocked'])
-  expect([ospf.data.colour, ospf.data.width, ospf.data.tag, ospf.data.dash]).toEqual(['#7c3aed', 3, 'OSPF', undefined])
+  expect([forwarding.data.dash, forwarding.data.tag, forwarding.data.colour, forwarding.data.animated]).toEqual([undefined, null, 'var(--ns-fg-subtle)', true])
+  expect([blocked.data.dash, blocked.data.tag, blocked.data.opacity, blocked.data.animated]).toEqual(['6 5', 'STP blocked', 0.45, false])
+  expect([ospf.data.colour, ospf.data.width, ospf.data.tag, ospf.data.dash]).toEqual(['var(--ns-accent)', 2.25, 'OSPF', undefined])
 
   const withDown: Topology = { ...TOPOLOGY, links: TOPOLOGY.links.map((link) => (link.ospf ? { ...link, status: 'down' } : link)) }
   const [down] = edge(toFlow(withDown), 'dev:r1', 'dev:r2')
-  expect([down.data.colour, down.data.tag]).toEqual(['#dc2626', 'down'])
+  expect([down.data.colour, down.data.tag, down.data.animated]).toEqual(['var(--ns-crit)', 'down', false])
 })
 
 test('choosing a VLAN highlights where it is carried and dims the rest', () => {
@@ -113,7 +113,7 @@ test('choosing a VLAN highlights where it is carried and dims the rest', () => {
   // VLAN 30 runs R1 - SW1 - SW2 over both cables, but not to the host (VLAN 20)
   // and not over the routed link.
   const [trunk] = edge(flow, 'dev:r1', 'dev:sw1')
-  expect([trunk.data.colour, trunk.data.opacity, trunk.data.width]).toEqual(['#2563eb', 1, 3])
+  expect([trunk.data.colour, trunk.data.opacity, trunk.data.width]).toEqual(['var(--ns-accent)', 1, 2.25])
   const [routed] = edge(flow, 'dev:r1', 'dev:r2')
   expect(routed.data.opacity).toBeLessThan(0.3)
   const [hostLink] = flow.edges.filter((item) => item.id.includes('host:'))
@@ -124,7 +124,7 @@ test('choosing a VLAN highlights where it is carried and dims the rest', () => {
   expect(node(flow, 'host:52:54:00:68:dd:64').data.dimmed).toBe(true)
   // The blocked cable carries VLAN 30 on paper: highlighted, but dashed.
   const [, blocked] = edge(flow, 'dev:sw1', 'dev:sw2')
-  expect([blocked.data.colour, blocked.data.dash]).toEqual(['#2563eb', '7 6'])
+  expect([blocked.data.colour, blocked.data.dash]).toEqual(['var(--ns-accent)', '6 5'])
 })
 
 test('a link blocked for one VLAN is solid when another VLAN is chosen', () => {
@@ -140,14 +140,14 @@ test('a link blocked for one VLAN is solid when another VLAN is chosen', () => {
   expect(isBlocked(blockedLink, 20)).toBe(true)
   expect(isBlocked(blockedLink, 30)).toBe(false)
   expect(edge(toFlow(partly, { vlan: 30 }), 'dev:sw1', 'dev:sw2')[1].data.dash).toBeUndefined()
-  expect(edge(toFlow(partly, { vlan: 20 }), 'dev:sw1', 'dev:sw2')[1].data.dash).toBe('7 6')
+  expect(edge(toFlow(partly, { vlan: 20 }), 'dev:sw1', 'dev:sw2')[1].data.dash).toBe('6 5')
 })
 
 test('with no VLAN chosen nothing is dimmed', () => {
   const flow = toFlow(TOPOLOGY)
 
   expect(flow.nodes.every((item) => !item.data.dimmed)).toBe(true)
-  expect(flow.edges.every((item) => item.data.opacity === 1)).toBe(true)
+  expect(flow.edges.every((item) => item.data.opacity === (item.data.dash ? 0.45 : 1))).toBe(true)
 })
 
 test('the management network is only drawn when asked for', () => {
@@ -221,6 +221,28 @@ test('devices and links that changed since the baseline are marked', () => {
   expect(node(flow, 'dev:r1').data.changed).toBe(true)
   expect(node(flow, 'dev:sw1').data.changed).toBe(false)
   const [changed] = edge(flow, 'dev:r1', 'dev:r2')
-  expect([changed.data.colour, changed.data.width, changed.data.tag]).toEqual(['#ea580c', 3.5, 'changed'])
-  expect(edge(flow, 'dev:r1', 'dev:sw1')[0].data.colour).toBe('#64748b')
+  expect([changed.data.colour, changed.data.width, changed.data.tag]).toEqual(['var(--ns-warn)', 2.5, 'changed'])
+  expect(edge(flow, 'dev:r1', 'dev:sw1')[0].data.colour).toBe('var(--ns-fg-subtle)')
+})
+
+test('hovering a node keeps it and its neighbours bright and fades the rest', () => {
+  const flow = toFlow(TOPOLOGY, { focus: 'dev:sw2' })
+  const near = new Set(['dev:sw2'])
+  for (const link of TOPOLOGY.links) {
+    if (link.a.node === 'dev:sw2') near.add(link.b.node)
+    if (link.b.node === 'dev:sw2') near.add(link.a.node)
+  }
+
+  expect(near.has('dev:sw1')).toBe(true)
+  expect(near.has('dev:r2')).toBe(false)
+  for (const item of flow.nodes) expect([item.id, item.data.faded]).toEqual([item.id, !near.has(item.id)])
+  expect(edge(flow, 'dev:r1', 'dev:r2')[0].data.opacity).toBe(0.15)
+  expect(edge(flow, 'dev:sw1', 'dev:sw2')[0].data.opacity).toBeGreaterThan(0.15)
+})
+
+test('nodes carry their health and selection', () => {
+  const flow = toFlow(TOPOLOGY, { health: { 'dev:r1': 'crit', 'dev:sw1': 'ok' }, selected: 'dev:sw1' })
+
+  expect([node(flow, 'dev:r1').data.health, node(flow, 'dev:sw1').data.health, node(flow, 'dev:r2').data.health]).toEqual(['crit', 'ok', null])
+  expect([node(flow, 'dev:sw1').data.selected, node(flow, 'dev:r1').data.selected]).toEqual([true, false])
 })
