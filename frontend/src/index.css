@@ -26,13 +26,34 @@
   --color-fg-subtle: var(--ns-fg-subtle);
   --color-accent: var(--ns-accent);
   --color-accent-soft: color-mix(in srgb, var(--ns-accent) 14%, transparent);
+  --color-on-accent: var(--ns-on-accent);
+  --color-link: var(--ns-link);
+
+  /*
+   * Status colours. The bare name (bg-ok, stroke-crit) is for marks that are
+   * not text: dots, bars, map lines. Text uses -fg, tinted panels -bg and
+   * -border. Each theme sets its own values, all at least 4.5:1 for -fg on
+   * canvas, surface, raised and the status's own -bg.
+   */
   --color-ok: var(--ns-ok);
   --color-ok-soft: color-mix(in srgb, var(--ns-ok) 12%, transparent);
+  --color-ok-fg: var(--ns-ok-fg);
+  --color-ok-bg: var(--ns-ok-bg);
+  --color-ok-border: var(--ns-ok-border);
   --color-warn: var(--ns-warn);
   --color-warn-soft: color-mix(in srgb, var(--ns-warn) 12%, transparent);
+  --color-warn-fg: var(--ns-warn-fg);
+  --color-warn-bg: var(--ns-warn-bg);
+  --color-warn-border: var(--ns-warn-border);
   --color-crit: var(--ns-crit);
   --color-crit-soft: color-mix(in srgb, var(--ns-crit) 12%, transparent);
+  --color-crit-fg: var(--ns-crit-fg);
+  --color-crit-bg: var(--ns-crit-bg);
+  --color-crit-border: var(--ns-crit-border);
   --color-unknown: var(--ns-unknown);
+  --color-info-fg: var(--ns-info-fg);
+  --color-info-bg: var(--ns-info-bg);
+  --color-info-border: var(--ns-info-border);
 
   --shadow-float: var(--ns-shadow);
 
@@ -53,13 +74,27 @@
   --ns-line: #252c36;
   --ns-line-strong: #343d49;
   --ns-fg: #d6dce3;
-  --ns-fg-muted: #8a95a3;
-  --ns-fg-subtle: #5e6875;
+  --ns-fg-muted: #a3adba;
+  --ns-fg-subtle: #8792a0;
   --ns-accent: #4b93f2;
+  --ns-on-accent: #0b1220;
+  --ns-link: #79b8ff;
   --ns-ok: #3fb950;
+  --ns-ok-fg: #56d364;
+  --ns-ok-bg: #11261a;
+  --ns-ok-border: #2b6a3a;
   --ns-warn: #d29922;
+  --ns-warn-fg: #e3b341;
+  --ns-warn-bg: #2a2111;
+  --ns-warn-border: #6b5216;
   --ns-crit: #f0524a;
-  --ns-unknown: #6e7781;
+  --ns-crit-fg: #ff7b72;
+  --ns-crit-bg: #2d1517;
+  --ns-crit-border: #7a2e2b;
+  --ns-unknown: #7d8590;
+  --ns-info-fg: #a3adba;
+  --ns-info-bg: #1a2029;
+  --ns-info-border: #3a4350;
   --ns-shadow: 0 8px 24px rgb(0 0 0 / 0.35);
   --ns-code-keyword: #79b8ff;
   --ns-code-interface: #d2a8ff;
@@ -76,13 +111,27 @@
   --ns-line: #dde2e7;
   --ns-line-strong: #c4cbd3;
   --ns-fg: #1b2027;
-  --ns-fg-muted: #59626d;
-  --ns-fg-subtle: #8b949e;
+  --ns-fg-muted: #4f5862;
+  --ns-fg-subtle: #5f6873;
   --ns-accent: #1f6feb;
+  --ns-on-accent: #ffffff;
+  --ns-link: #0a5bc4;
   --ns-ok: #1a7f37;
+  --ns-ok-fg: #116329;
+  --ns-ok-bg: #e6f6ea;
+  --ns-ok-border: #8fd19e;
   --ns-warn: #9a6700;
+  --ns-warn-fg: #7d4e00;
+  --ns-warn-bg: #fdf3d6;
+  --ns-warn-border: #e3c068;
   --ns-crit: #cf222e;
+  --ns-crit-fg: #b3121f;
+  --ns-crit-bg: #fdeceb;
+  --ns-crit-border: #f2a7a2;
   --ns-unknown: #6e7781;
+  --ns-info-fg: #545d68;
+  --ns-info-bg: #eef1f4;
+  --ns-info-border: #c4cbd3;
   --ns-shadow: 0 8px 24px rgb(0 0 0 / 0.12);
   --ns-code-keyword: #0550ae;
   --ns-code-interface: #8250df;

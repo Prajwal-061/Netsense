@@ -9,6 +9,7 @@ import {
   EmptyState,
   ErrorBox,
   Loading,
+  MessageBar,
   PageTitle,
   Spinner,
   TableScroll,
@@ -44,7 +45,7 @@ export default function Collections() {
                 <Button onClick={() => start.mutate()} busy={start.isPending}>
                   Collect from all devices
                 </Button>
-                <p className="text-sm text-slate-600">
+                <p className="text-[13px] text-fg-muted">
                   Routers, switches and devices recognised as network devices by a scan. A few
                   devices are read at a time; one that fails does not stop the others.
                 </p>
@@ -70,7 +71,7 @@ export default function Collections() {
               title={selectedId !== undefined ? `Collection #${selectedId}: devices` : 'Devices'}
               action={
                 selected.data && (
-                  <span className="text-xs text-slate-500">
+                  <span className="text-[12px] text-fg-muted">
                     started {formatDateTime(selected.data.started_at)}
                   </span>
                 )
@@ -99,17 +100,17 @@ export default function Collections() {
                     <Th className="text-right">Failed</Th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-line">
                   {runs.data.map((run) => (
                     <tr
                       key={run.id}
-                      className={`cursor-pointer hover:bg-slate-50 ${run.id === selectedId ? 'bg-blue-50/60' : ''}`}
+                      className={`cursor-pointer hover:bg-raised ${run.id === selectedId ? 'bg-accent-soft' : ''}`}
                       onClick={() => setChosen(run.id)}
                     >
                       <Td>
                         <button
                           type="button"
-                          className="font-medium text-blue-700 hover:underline"
+                          className="font-medium text-link hover:underline"
                           aria-pressed={run.id === selectedId}
                           onClick={() => setChosen(run.id)}
                         >
@@ -124,13 +125,13 @@ export default function Collections() {
                       </Td>
                       <Td className="whitespace-nowrap">
                         {formatDateTime(run.started_at)}
-                        <span className="block text-xs text-slate-500">{timeAgo(run.started_at)}</span>
+                        <span className="block text-[12px] text-fg-muted">{timeAgo(run.started_at)}</span>
                       </Td>
                       <Td className="whitespace-nowrap tabular-nums">
                         {formatDuration(run.started_at, run.finished_at)}
                       </Td>
-                      <Td className="text-right tabular-nums text-emerald-700">{run.succeeded}</Td>
-                      <Td className={`text-right tabular-nums ${run.failed ? 'font-semibold text-red-700' : 'text-slate-400'}`}>
+                      <Td className="text-right tabular-nums text-ok-fg">{run.succeeded}</Td>
+                      <Td className={`text-right tabular-nums ${run.failed ? 'font-semibold text-crit-fg' : 'text-fg-subtle'}`}>
                         {run.failed}
                       </Td>
                     </tr>
@@ -150,10 +151,10 @@ function StartError({ error }: { error: unknown }) {
   // are things to explain, not failures.
   if (error instanceof ApiError && (error.status === 409 || error.status === 404)) {
     return (
-      <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900" role="status">
+      <MessageBar tone="warn">
         {error.status === 409 ? 'A collection is already running, so a second one was not started. ' : ''}
         {error.message}
-      </p>
+      </MessageBar>
     )
   }
   return <ErrorBox error={error} />
@@ -165,22 +166,22 @@ function Progress({ run }: { run: { id: number; device_count: number; pending: n
   return (
     <div role="status" aria-live="polite">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <p className="text-sm font-semibold text-slate-900">Collection #{run.id} is running</p>
-        <p className="text-sm text-slate-600 tabular-nums">
+        <p className="text-[13px] font-semibold text-fg">Collection #{run.id} is running</p>
+        <p className="text-[13px] text-fg-muted tabular-nums">
           {done} of {run.device_count} devices done
-          {run.failed > 0 && <span className="text-red-700"> ({run.failed} failed)</span>}
+          {run.failed > 0 && <span className="text-crit-fg"> ({run.failed} failed)</span>}
         </p>
       </div>
       <div
-        className="mt-2 h-2 overflow-hidden rounded-full bg-blue-100"
+        className="mt-2 h-2 overflow-hidden rounded-full bg-raised"
         role="progressbar"
         aria-valuemin={0}
         aria-valuemax={run.device_count}
         aria-valuenow={done}
       >
-        <div className="h-full rounded-full bg-blue-600 transition-all" style={{ width: `${percent}%` }} />
+        <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${percent}%` }} />
       </div>
-      <p className="mt-2 text-sm text-slate-600">
+      <p className="mt-2 text-[13px] text-fg-muted">
         Each device appears below as soon as it has answered. This page updates by itself.
       </p>
     </div>
@@ -202,9 +203,9 @@ function ResultsTable({ run }: { run: NetworkCollectionDetail }) {
           <Th>Details</Th>
         </tr>
       </thead>
-      <tbody className="divide-y divide-slate-100">
+      <tbody className="divide-y divide-line">
         {results.map((result) => (
-          <tr key={result.id} className="hover:bg-slate-50">
+          <tr key={result.id} className="hover:bg-raised">
             <Td>
               <DeviceName result={result} />
             </Td>
@@ -212,7 +213,7 @@ function ResultsTable({ run }: { run: NetworkCollectionDetail }) {
               <StatusBadge status={result.status} />
             </Td>
             <Td>{result.device_type ? <TypeBadge type={result.device_type} /> : '-'}</Td>
-            <Td className="text-slate-700">
+            <Td className="text-fg">
               {result.status === 'success' ? <CollectedSummary collected={result.collected} /> : '-'}
             </Td>
             <Td>
@@ -221,12 +222,12 @@ function ResultsTable({ run }: { run: NetworkCollectionDetail }) {
               ) : result.config_changed ? (
                 <Badge tone="amber">changed</Badge>
               ) : (
-                <span className="text-slate-500">unchanged</span>
+                <span className="text-fg-muted">unchanged</span>
               )}
             </Td>
-            <Td className="max-w-md min-w-48 text-xs break-words">
-              {result.error && <span className="text-red-700">{result.error}</span>}
-              {result.note && <span className="text-amber-800">{result.note}</span>}
+            <Td className="max-w-md min-w-48 text-[12px] break-words">
+              {result.error && <span className="text-crit-fg">{result.error}</span>}
+              {result.note && <span className="text-warn-fg">{result.note}</span>}
             </Td>
           </tr>
         ))}
@@ -243,7 +244,7 @@ function DeviceName({ result }: { result: DeviceCollectionResult }) {
     </>
   )
   return result.device_id !== null ? (
-    <Link to={`/devices/${result.device_id}`} className="text-blue-700 hover:underline">
+    <Link to={`/devices/${result.device_id}`} className="text-link hover:underline">
       {label}
     </Link>
   ) : (

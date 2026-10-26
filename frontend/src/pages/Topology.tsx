@@ -87,7 +87,7 @@ export default function TopologyPage() {
       ) : noCollection ? (
         <EmptyState>
           There is no topology yet.{' '}
-          <Link to="/collections" className="text-accent hover:underline">
+          <Link to="/collections" className="text-link hover:underline">
             Collect from all devices
           </Link>
         </EmptyState>
@@ -166,7 +166,7 @@ function NodePanel({
       className="absolute z-10 flex flex-col overflow-hidden border border-line bg-surface shadow-float max-md:inset-x-0 max-md:bottom-0 max-md:max-h-[60%] max-md:rounded-t md:top-3 md:right-3 md:bottom-3 md:w-80 md:rounded"
     >
       <header className="flex items-center gap-2.5 border-b border-line px-3 py-2">
-        <KindIcon kind={node.kind} className="h-6 w-6 shrink-0 text-accent" />
+        <KindIcon kind={node.kind} className="h-6 w-6 shrink-0 text-link" />
         <div className="min-w-0 flex-1">
           <h2 className="truncate font-semibold text-fg">{node.name}</h2>
           {health && (
@@ -228,7 +228,7 @@ function NodePanel({
       </div>
       {node.device_id !== null && (
         <footer className="border-t border-line px-3 py-2">
-          <Link to={`/devices/${node.device_id}`} className="text-accent hover:underline">
+          <Link to={`/devices/${node.device_id}`} className="text-link hover:underline">
             Open device page
           </Link>
         </footer>
@@ -241,7 +241,7 @@ function LinkTag({ link }: { link: TopologyLink }) {
   const tag = link.stp_blocked ? 'STP blocked' : link.ospf ? 'OSPF' : link.mode === 'trunk' ? 'trunk' : link.mode === 'access' ? 'access' : null
   if (!tag) return null
   return (
-    <span className={`shrink-0 rounded-sm border px-1 text-[10px] leading-[14px] ${link.stp_blocked ? 'border-warn/50 text-warn' : 'border-line-strong text-fg-muted'}`}>
+    <span className={`shrink-0 rounded-sm border px-1 text-[10px] leading-[14px] ${link.stp_blocked ? 'border-warn/50 text-warn-fg' : 'border-line-strong text-fg-muted'}`}>
       {tag}
     </span>
   )
@@ -301,8 +301,8 @@ export function Legend({
       aria-label="Legend"
       title="Point at a link for details. Click a device for its details. Drag to rearrange."
     >
-      {item(<KindIcon kind="router" className="h-4 w-4 text-accent" />, 'Router')}
-      {item(<KindIcon kind="switch" className="h-4 w-4 text-accent" />, 'Switch')}
+      {item(<KindIcon kind="router" className="h-4 w-4 text-link" />, 'Router')}
+      {item(<KindIcon kind="switch" className="h-4 w-4 text-link" />, 'Switch')}
       {item(<KindIcon kind="host" className="h-4 w-4 text-fg-muted" />, 'Host')}
       {item(<KindIcon kind="unknown" className="h-4 w-4 text-fg-subtle" />, 'Unknown neighbour')}
       {showHealth && item(dot('var(--ns-ok)'), 'Healthy')}

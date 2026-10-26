@@ -3,8 +3,8 @@ import type { Panel, Port } from '../faceplate'
 import { describePort } from '../faceplate'
 
 const JACK: Record<Port['state'], string> = {
-  up: 'border-ok/70 bg-ok-soft text-ok',
-  down: 'border-crit/70 bg-crit-soft text-crit',
+  up: 'border-ok/70 bg-ok-soft text-ok-fg',
+  down: 'border-crit/70 bg-crit-soft text-crit-fg',
   'admin-down': 'border-dashed border-line-strong bg-canvas text-fg-subtle',
 }
 
@@ -172,8 +172,8 @@ function Key({ className, children }: { className: string; children: string }) {
 function Summary({ ports }: { ports: Port[] }) {
   const count = (test: (port: Port) => boolean) => ports.filter(test).length
   const rows: [string, number, string][] = [
-    ['UP', count((port) => port.state === 'up'), 'text-ok'],
-    ['DOWN', count((port) => port.state === 'down'), 'text-crit'],
+    ['UP', count((port) => port.state === 'up'), 'text-ok-fg'],
+    ['DOWN', count((port) => port.state === 'down'), 'text-crit-fg'],
     ['ADMIN', count((port) => port.state === 'admin-down'), 'text-fg-muted'],
     ['TRUNK', count((port) => port.mode === 'trunk'), 'text-fg'],
     ['ACCESS', count((port) => port.mode === 'access'), 'text-fg'],
@@ -182,7 +182,7 @@ function Summary({ ports }: { ports: Port[] }) {
   return (
     <dl className="hidden shrink-0 grid-cols-3 content-center gap-x-4 gap-y-1 rounded-[3px] border border-line bg-canvas px-3 py-2 font-mono text-[10px] md:grid">
       {rows.map(([label, value, colour]) => (
-        <div key={label} className={value ? '' : 'opacity-40'}>
+        <div key={label}>
           <dt className="tracking-widest text-fg-subtle">{label}</dt>
           <dd className={`tabular text-[13px] leading-4 ${value ? colour : 'text-fg-subtle'}`}>{value}</dd>
         </div>

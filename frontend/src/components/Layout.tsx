@@ -151,7 +151,7 @@ function TopBar({
           <kbd className="hidden rounded-[2px] border border-line px-1 font-mono text-[10px] lg:inline">Ctrl K</kbd>
         </button>
         {collecting && (
-          <Link to="/collections" className="flex items-center gap-1.5 whitespace-nowrap text-accent hover:underline" title="Collection running">
+          <Link to="/collections" className="flex items-center gap-1.5 whitespace-nowrap text-link hover:underline" title="Collection running">
             <Spinner className="h-3 w-3" />
             <span className="hidden sm:inline">Collecting</span> {collecting.device_count - collecting.pending}/{collecting.device_count}
           </Link>
@@ -178,7 +178,7 @@ function LastScan() {
   const last = scans?.find((scan) => scan.status !== 'running')
   if (running) {
     return (
-      <Link to={`/scans/${running.id}`} className="flex items-center gap-1.5 whitespace-nowrap text-accent hover:underline">
+      <Link to={`/scans/${running.id}`} className="flex items-center gap-1.5 whitespace-nowrap text-link hover:underline">
         <Spinner className="h-3 w-3" />
         <span className="hidden sm:inline">Scan</span> #{running.id} <span className="hidden sm:inline">running</span>
       </Link>
@@ -188,7 +188,7 @@ function LastScan() {
     <span className="hidden items-center gap-1.5 whitespace-nowrap sm:flex">
       <span className="text-fg-muted">Last scan</span>
       {last ? (
-        <Link to={`/scans/${last.id}`} className="text-fg hover:text-accent">
+        <Link to={`/scans/${last.id}`} className="text-fg hover:text-link">
           <RelativeTime iso={last.started_at} />
         </Link>
       ) : (
@@ -223,7 +223,7 @@ function BaselineStatus() {
   return (
     <Link
       to="/network-health"
-      className="hidden whitespace-nowrap hover:text-accent sm:inline"
+      className="hidden whitespace-nowrap hover:text-link sm:inline"
       title={
         check
           ? `Latest drift check #${check.id} against the baseline (collection #${baseline.data.collection_id})`

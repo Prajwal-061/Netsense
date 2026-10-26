@@ -11,7 +11,7 @@ export default function ChangeReportView({ report }: { report: ChangeReport }) {
   }
 
   const previous = (
-    <Link to={`/scans/${report.previous_scan_id}`} className="text-accent hover:underline">
+    <Link to={`/scans/${report.previous_scan_id}`} className="text-link hover:underline">
       scan #{report.previous_scan_id}
     </Link>
   )

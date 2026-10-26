@@ -345,7 +345,7 @@ export function Button({
   size?: 'sm' | 'md'
 }) {
   const look = {
-    primary: 'bg-accent text-white hover:brightness-110 disabled:bg-raised disabled:text-fg-subtle',
+    primary: 'bg-accent text-on-accent hover:brightness-110 disabled:bg-raised disabled:text-fg-subtle',
     secondary: 'border border-line-strong text-fg hover:bg-raised disabled:text-fg-subtle',
     ghost: 'text-fg-muted hover:bg-raised hover:text-fg',
   }[variant]

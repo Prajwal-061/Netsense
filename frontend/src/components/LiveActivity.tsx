@@ -160,7 +160,7 @@ function Console({
           {clock(elapsed)}
           {typicalSeconds !== null && <span className="text-fg-subtle"> · usually {clock(typicalSeconds)}</span>}
         </span>
-        <Link to={link.to} className="ml-auto text-xs text-accent hover:underline">
+        <Link to={link.to} className="ml-auto text-xs text-link hover:underline">
           {link.text}
         </Link>
       </header>
@@ -187,7 +187,7 @@ function Row({ state, label, detail, time }: { state: RowState; label: ReactNode
       <span className="sr-only">{STATE_LABEL[state]}:</span>
       <span className="min-w-0 shrink-0">{label}</span>
       {detail && (
-        <span className={`min-w-0 truncate text-xs ${state === 'failed' ? 'text-crit' : 'text-fg-muted'}`} title={detail}>
+        <span className={`min-w-0 truncate text-xs ${state === 'failed' ? 'text-crit-fg' : 'text-fg-muted'}`} title={detail}>
           {detail}
         </span>
       )}
@@ -197,18 +197,18 @@ function Row({ state, label, detail, time }: { state: RowState; label: ReactNode
 }
 
 function StateIcon({ state }: { state: RowState }) {
-  if (state === 'running') return <Spinner className="h-3.5 w-3.5 shrink-0 text-accent" />
+  if (state === 'running') return <Spinner className="h-3.5 w-3.5 shrink-0 text-link" />
   const common = { className: 'h-3.5 w-3.5 shrink-0', viewBox: '0 0 16 16', fill: 'none', 'aria-hidden': true as const }
   if (state === 'done')
     return (
-      <svg {...common} className={`${common.className} text-ok`}>
+      <svg {...common} className={`${common.className} text-ok-fg`}>
         <circle cx="8" cy="8" r="7" fill="currentColor" opacity="0.15" />
         <path d="M4.8 8.2l2.1 2.1 4.3-4.6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     )
   if (state === 'failed')
     return (
-      <svg {...common} className={`${common.className} text-crit`}>
+      <svg {...common} className={`${common.className} text-crit-fg`}>
         <circle cx="8" cy="8" r="7" fill="currentColor" opacity="0.15" />
         <path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
       </svg>

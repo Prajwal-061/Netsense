@@ -19,7 +19,7 @@ export default function Scans() {
           </div>
         ) : scans.data.length === 0 ? (
           <EmptyState>
-            No scans yet. <Link to="/" className="font-medium text-blue-700 hover:underline">Start one</Link>{' '}
+            No scans yet. <Link to="/" className="font-medium text-link hover:underline">Start one</Link>{' '}
             from the overview.
           </EmptyState>
         ) : (
@@ -34,17 +34,17 @@ export default function Scans() {
                 <Th className="text-right">Devices</Th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-line">
               {scans.data.map((scan) => (
                 <tr
                   key={scan.id}
-                  className="cursor-pointer hover:bg-slate-50"
+                  className="cursor-pointer hover:bg-raised"
                   onClick={() => void navigate(`/scans/${scan.id}`)}
                 >
                   <Td>
                     <Link
                       to={`/scans/${scan.id}`}
-                      className="font-medium text-blue-700 hover:underline"
+                      className="font-medium text-link hover:underline"
                       onClick={(event) => event.stopPropagation()}
                     >
                       #{scan.id}
@@ -53,17 +53,17 @@ export default function Scans() {
                   <Td>
                     <ScanStatusBadge status={scan.status} />
                     {scan.error && (
-                      <p className="mt-1 max-w-md text-xs break-words text-red-700">{scan.error}</p>
+                      <p className="mt-1 max-w-md text-[12px] break-words text-crit-fg">{scan.error}</p>
                     )}
                   </Td>
                   <Td className="whitespace-nowrap">
                     {formatDateTime(scan.started_at)}
-                    <span className="block text-xs text-slate-500">{timeAgo(scan.started_at)}</span>
+                    <span className="block text-[12px] text-fg-muted">{timeAgo(scan.started_at)}</span>
                   </Td>
                   <Td className="whitespace-nowrap tabular-nums">
                     {formatDuration(scan.started_at, scan.finished_at)}
                   </Td>
-                  <Td className="font-mono text-xs whitespace-nowrap">{scan.subnet}</Td>
+                  <Td className="font-mono text-[12px] whitespace-nowrap">{scan.subnet}</Td>
                   <Td className="text-right tabular-nums">
                     {scan.status === 'completed' ? scan.device_count : '-'}
                   </Td>

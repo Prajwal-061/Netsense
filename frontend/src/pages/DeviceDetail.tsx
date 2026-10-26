@@ -70,7 +70,7 @@ function DeviceView({ id }: { id: number }) {
   return (
     <>
       <nav aria-label="Breadcrumb" className="mb-1 text-xs text-fg-muted">
-        <Link to="/devices" className="hover:text-accent">
+        <Link to="/devices" className="hover:text-link">
           Devices
         </Link>
         <span className="text-fg-subtle"> / </span>
@@ -116,7 +116,7 @@ function DeviceView({ id }: { id: number }) {
             : collect.data.config_changed
               ? `The running config has changed since the last backup (${changeSize(collect.data.config_backup)}).`
               : 'The running config is unchanged since the last backup.'}
-          {collect.data.note && <span className="ml-1 text-warn">{collect.data.note}</span>}
+          {collect.data.note && <span className="ml-1 text-warn-fg">{collect.data.note}</span>}
         </MessageBar>
       )}
 
@@ -149,7 +149,7 @@ function DeviceView({ id }: { id: number }) {
                   ? [
                       [
                         'Last scan',
-                        <Link key="scan" to={`/scans/${result.scan_id}`} className="text-accent hover:underline">
+                        <Link key="scan" to={`/scans/${result.scan_id}`} className="text-link hover:underline">
                           Scan #{result.scan_id}
                         </Link>,
                       ] as [ReactNode, ReactNode],
@@ -442,7 +442,7 @@ function ConfigsTab({ deviceId }: { deviceId: number }) {
               >
                 <span className="flex items-center justify-between gap-2 text-fg">
                   {formatDateTime(backup.collected_at)}
-                  {index === 0 && <span className="text-xs text-ok">current</span>}
+                  {index === 0 && <span className="text-xs text-ok-fg">current</span>}
                 </span>
                 <span className="mt-1 flex flex-wrap items-center gap-2">
                   {/* Only say what the API actually reported. A missing value
@@ -552,8 +552,8 @@ function ConfigComparison({ deviceId, fromId, toId }: { deviceId: number; fromId
   return (
     <>
       <p className="mb-2 flex flex-wrap items-center gap-3 text-xs" title="Timestamp lines are ignored and secrets are masked.">
-        <span className="tabular font-mono text-ok">+{data.lines_added} added</span>
-        <span className="tabular font-mono text-crit">-{data.lines_removed} removed</span>
+        <span className="tabular font-mono text-ok-fg">+{data.lines_added} added</span>
+        <span className="tabular font-mono text-crit-fg">-{data.lines_removed} removed</span>
       </p>
       <DiffView diff={data.diff} />
     </>

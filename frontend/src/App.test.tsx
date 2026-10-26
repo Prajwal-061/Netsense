@@ -254,7 +254,7 @@ test('router tabs show OSPF neighbours and the routing table from the API', asyn
 
   await user.click(await screen.findByRole('tab', { name: 'OSPF neighbors' }))
   expect(await screen.findByRole('cell', { name: '2.2.2.2' })).toBeInTheDocument()
-  expect(screen.getByRole('cell', { name: 'FULL/DR' })).toHaveClass('text-ok')
+  expect(screen.getByRole('cell', { name: 'FULL/DR' })).toHaveClass('text-ok-fg')
 
   await user.click(screen.getByRole('tab', { name: 'Routing table' }))
   expect(await screen.findByRole('cell', { name: '10.2.1.1' })).toBeInTheDocument()
@@ -288,10 +288,10 @@ test('switch tabs show trunks and spanning tree, with blocked ports in red', asy
   expect(tabs).toEqual(['Interfaces', 'CDP neighbors', 'ARP', 'VLANs', 'Trunks', 'Spanning tree', 'MAC table', 'Config backups'])
 
   await user.click(screen.getByRole('tab', { name: 'Trunks' }))
-  expect(await screen.findByRole('cell', { name: 'none' })).toHaveClass('text-crit')
+  expect(await screen.findByRole('cell', { name: 'none' })).toHaveClass('text-crit-fg')
   await user.click(screen.getByRole('tab', { name: 'Spanning tree' }))
-  expect(await screen.findByRole('cell', { name: 'BLK' })).toHaveClass('text-crit')
-  expect(screen.getByRole('cell', { name: 'FWD' })).toHaveClass('text-ok')
+  expect(await screen.findByRole('cell', { name: 'BLK' })).toHaveClass('text-crit-fg')
+  expect(screen.getByRole('cell', { name: 'FWD' })).toHaveClass('text-ok-fg')
 })
 
 test('a switch page starts with its front panel: state, VLAN or T per port, details on hover', async () => {
@@ -419,8 +419,8 @@ test('network device: collect, then interfaces and the config backup are shown',
 
   expect(await screen.findByText(/Collected 8 kinds of data\. Confirmed as a switch\./)).toBeInTheDocument()
   expect(await screen.findByRole('cell', { name: 'Ethernet0/1' })).toBeInTheDocument()
-  expect(screen.getByRole('cell', { name: 'administratively down' })).toHaveClass('text-crit')
-  expect(screen.getAllByRole('cell', { name: 'up' })[0]).toHaveClass('text-ok')
+  expect(screen.getByRole('cell', { name: 'administratively down' })).toHaveClass('text-crit-fg')
+  expect(screen.getAllByRole('cell', { name: 'up' })[0]).toHaveClass('text-ok-fg')
 
   expect(screen.getByText(/first config backup/)).toBeInTheDocument()
 

@@ -113,7 +113,7 @@ export default function Devices() {
         ) : all.length === 0 ? (
           <EmptyState>
             No devices yet.{' '}
-            <Link to="/" className="text-accent hover:underline">
+            <Link to="/" className="text-link hover:underline">
               Start a scan
             </Link>
           </EmptyState>
@@ -139,7 +139,7 @@ export default function Devices() {
               {shown.map((device) => (
                 <tr key={device.id}>
                   <Td>
-                    <Link to={`/devices/${device.id}`} className="font-mono text-[12.5px] text-accent hover:underline">
+                    <Link to={`/devices/${device.id}`} className="font-mono text-[12.5px] text-link hover:underline">
                       {device.last_ip}
                     </Link>
                   </Td>

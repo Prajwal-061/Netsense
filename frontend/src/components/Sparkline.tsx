@@ -1,11 +1,11 @@
 import type { Status } from './ui'
 
 const TONE: Record<Status, string> = {
-  ok: 'text-ok',
-  warn: 'text-warn',
-  crit: 'text-crit',
-  unknown: 'text-unknown',
-  accent: 'text-accent',
+  ok: 'text-ok-fg',
+  warn: 'text-warn-fg',
+  crit: 'text-crit-fg',
+  unknown: 'text-info-fg',
+  accent: 'text-link',
 }
 
 /**

@@ -65,17 +65,17 @@ function stateColour(text: string): string {
     ['up', 'active', 'connected', 'fwd', 'trunking'].includes(value) ||
     value.startsWith('full')
   ) {
-    return 'font-medium text-ok'
+    return 'font-medium text-ok-fg'
   }
   if (
     value.includes('down') ||
     value.includes('err-disabled') ||
     ['notconnect', 'blk', 'not-trunking', 'none'].includes(value)
   ) {
-    return 'font-medium text-crit'
+    return 'font-medium text-crit-fg'
   }
   if (['lrn', 'lis', 'altn', 'back'].includes(value) || value.startsWith('init') || value.startsWith('exstart')) {
-    return 'font-medium text-warn'
+    return 'font-medium text-warn-fg'
   }
   return 'text-fg'
 }

@@ -18,7 +18,7 @@ export function LogoMark({ size = 20, className = '' }: { size?: number; classNa
 export function Wordmark({ className = '' }: { className?: string }) {
   return (
     <span className={`font-semibold tracking-[-0.01em] text-fg ${className}`}>
-      Net<span className="text-accent">Sense</span>
+      Net<span className="text-link">Sense</span>
     </span>
   )
 }

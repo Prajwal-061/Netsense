@@ -4,8 +4,8 @@ import type { Health } from '../health'
 import type { FlowNodeData } from './flow'
 
 const ICON_COLOUR: Record<FlowNodeData['kind'], string> = {
-  router: 'text-accent',
-  switch: 'text-accent',
+  router: 'text-link',
+  switch: 'text-link',
   host: 'text-fg-muted',
   unknown: 'text-fg-subtle',
   management: 'text-fg-subtle',
@@ -42,7 +42,7 @@ export default function DeviceNode({ data }: NodeProps) {
       <div className="min-w-0 flex-1 leading-tight">
         <p className="truncate text-[13px] font-semibold text-fg">{node.name}</p>
         {node.subtitle && <p className="truncate font-mono text-[11px] text-fg-muted">{node.subtitle}</p>}
-        {node.notCollected && <p className="text-[10px] font-medium text-crit">not reached this run</p>}
+        {node.notCollected && <p className="text-[10px] font-medium text-crit-fg">not reached this run</p>}
         {node.badge && !node.notCollected && <p className="truncate text-[10px] text-fg-subtle">{node.badge}</p>}
       </div>
       {health && (

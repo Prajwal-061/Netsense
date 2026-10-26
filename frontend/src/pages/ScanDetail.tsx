@@ -6,6 +6,7 @@ import {
   EmptyState,
   ErrorBox,
   Loading,
+  MessageBar,
   PageTitle,
   ScanStatusBadge,
   TableScroll,
@@ -29,11 +30,11 @@ export default function ScanDetail() {
 
   return (
     <>
-      <p className="mb-2 text-sm">
-        <Link to="/scans" className="text-blue-700 hover:underline">
+      <p className="mb-2 text-[13px]">
+        <Link to="/scans" className="text-link hover:underline">
           Scans
         </Link>
-        <span className="text-slate-400"> / </span>#{data.id}
+        <span className="text-fg-subtle"> / </span>#{data.id}
       </p>
       <PageTitle
         title={
@@ -56,10 +57,9 @@ export default function ScanDetail() {
           </Card>
         )}
         {data.status === 'failed' && (
-          <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-900" role="alert">
-            <p className="font-semibold">This scan failed, so it has no results.</p>
-            <p className="mt-1 break-words">{data.error}</p>
-          </div>
+          <MessageBar tone="crit" title="This scan failed, so it has no results.">
+            {data.error}
+          </MessageBar>
         )}
 
         {data.changes && (
@@ -84,13 +84,13 @@ export default function ScanDetail() {
                     <Th>Reason for the type</Th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-line">
                   {results.map((result) => (
-                    <tr key={result.device_id} className="hover:bg-slate-50">
+                    <tr key={result.device_id} className="hover:bg-raised">
                       <Td>
                         <Link
                           to={`/devices/${result.device_id}`}
-                          className="font-mono font-medium text-blue-700 hover:underline"
+                          className="font-mono font-medium text-link hover:underline"
                         >
                           {result.ip}
                         </Link>
@@ -101,9 +101,9 @@ export default function ScanDetail() {
                       <Td>
                         <PortChips ports={result.open_ports} />
                       </Td>
-                      <Td className="font-mono text-xs whitespace-nowrap text-slate-700">{result.mac}</Td>
-                      <Td className="text-slate-700">{result.vendor}</Td>
-                      <Td className="min-w-64 text-xs text-slate-600">{result.reason}</Td>
+                      <Td className="font-mono text-[12px] whitespace-nowrap text-fg">{result.mac}</Td>
+                      <Td className="text-fg">{result.vendor}</Td>
+                      <Td className="min-w-64 text-[12px] text-fg-muted">{result.reason}</Td>
                     </tr>
                   ))}
                 </tbody>

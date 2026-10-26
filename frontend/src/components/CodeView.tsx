@@ -10,9 +10,9 @@ const TOKEN_CLASS: Record<TokenKind, string> = {
   address: 'text-code-address',
   number: 'text-code-number',
   string: 'text-code-string italic',
-  negate: 'text-crit',
+  negate: 'text-crit-fg',
   secret: 'text-fg-subtle',
-  shutdown: 'text-crit',
+  shutdown: 'text-crit-fg',
 }
 
 /** One line of IOS config, coloured. */
@@ -52,8 +52,8 @@ export function ConfigView({ text, label, maxHeight = 'max-h-[36rem]' }: { text:
 
 const ROW_BG: Record<DiffLine['kind'], string> = { add: 'bg-ok-soft', del: 'bg-crit-soft', ctx: '' }
 const SIGN: Record<DiffLine['kind'], { text: string; className: string }> = {
-  add: { text: '+', className: 'text-ok' },
-  del: { text: '-', className: 'text-crit' },
+  add: { text: '+', className: 'text-ok-fg' },
+  del: { text: '-', className: 'text-crit-fg' },
   ctx: { text: ' ', className: '' },
 }
 
@@ -84,9 +84,9 @@ export default function DiffView({
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line bg-surface px-3 py-1.5 text-xs">
           {parsed.from && (
             <span className="min-w-0 truncate font-mono text-fg-muted">
-              <span className="text-crit">{parsed.from}</span>
+              <span className="text-crit-fg">{parsed.from}</span>
               <span className="text-fg-subtle"> → </span>
-              <span className="text-ok">{parsed.to}</span>
+              <span className="text-ok-fg">{parsed.to}</span>
             </span>
           )}
           {allowSplit && (
@@ -113,7 +113,7 @@ export default function DiffView({
               <Fragment key={hunkIndex}>
                 {hunk.header && (
                   <tr>
-                    <td colSpan={split ? 6 : 4} className="border-y border-line bg-accent-soft px-3 text-accent">
+                    <td colSpan={split ? 6 : 4} className="border-y border-line bg-accent-soft px-3 text-link">
                       {hunk.header}
                     </td>
                   </tr>

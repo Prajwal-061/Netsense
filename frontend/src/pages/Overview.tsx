@@ -60,7 +60,7 @@ export default function Overview() {
               title="Latest changes"
               action={
                 latestCompleted && (
-                  <Link to={`/scans/${latestCompleted.id}`} className="text-xs text-accent hover:underline">
+                  <Link to={`/scans/${latestCompleted.id}`} className="text-xs text-link hover:underline">
                     Scan #{latestCompleted.id}, <RelativeTime iso={latestCompleted.started_at} />
                   </Link>
                 )
@@ -81,7 +81,7 @@ export default function Overview() {
             <Card
               title="Devices"
               action={
-                <Link to="/devices" className="text-xs text-accent hover:underline">
+                <Link to="/devices" className="text-xs text-link hover:underline">
                   View all
                 </Link>
               }
@@ -151,7 +151,7 @@ function KpiStrip({
           score === null ? (
             '–'
           ) : (
-            <span className={health === 'ok' ? 'text-ok' : health === 'warn' ? 'text-warn' : 'text-crit'}>
+            <span className={health === 'ok' ? 'text-ok-fg' : health === 'warn' ? 'text-warn-fg' : 'text-crit-fg'}>
               {score}
               <span className="text-[13px] font-normal text-fg-subtle"> / 100</span>
             </span>
@@ -242,7 +242,7 @@ function MiniTopology({ className = '' }: { className?: string }) {
       className={className}
       title="Topology"
       action={
-        <Link to="/topology" className="text-xs text-accent hover:underline">
+        <Link to="/topology" className="text-xs text-link hover:underline">
           Open map
         </Link>
       }
@@ -252,7 +252,7 @@ function MiniTopology({ className = '' }: { className?: string }) {
       ) : noCollection ? (
         <EmptyState>
           No topology yet.{' '}
-          <Link to="/collections" className="text-accent hover:underline">
+          <Link to="/collections" className="text-link hover:underline">
             Collect from all devices
           </Link>
         </EmptyState>
@@ -274,7 +274,7 @@ function DeviceHealthCard() {
     <Card
       title="Device health"
       action={
-        <Link to="/network-health" className="text-xs text-accent hover:underline">
+        <Link to="/network-health" className="text-xs text-link hover:underline">
           Network health
         </Link>
       }
@@ -289,7 +289,7 @@ function DeviceHealthCard() {
             <li key={row.name} className="flex h-8 items-center gap-3 px-3">
               <span className="w-16 shrink-0 truncate font-medium text-fg">
                 {row.deviceId !== null ? (
-                  <Link to={`/devices/${row.deviceId}`} className="hover:text-accent">
+                  <Link to={`/devices/${row.deviceId}`} className="hover:text-link">
                     {row.name}
                   </Link>
                 ) : (
@@ -301,8 +301,8 @@ function DeviceHealthCard() {
               </span>
               <span className="tabular w-7 text-right text-fg">{row.score}</span>
               <span className="tabular w-16 text-right text-xs text-fg-muted" title={`${row.critical} critical, ${row.warning} warning, ${row.info} info`}>
-                {row.critical ? <span className="text-crit">{row.critical}C </span> : null}
-                {row.warning ? <span className="text-warn">{row.warning}W </span> : null}
+                {row.critical ? <span className="text-crit-fg">{row.critical}C </span> : null}
+                {row.warning ? <span className="text-warn-fg">{row.warning}W </span> : null}
                 {!row.critical && !row.warning ? 'clean' : null}
               </span>
             </li>

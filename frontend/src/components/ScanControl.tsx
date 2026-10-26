@@ -43,7 +43,7 @@ export function ScanMessages({ startScan }: { startScan: StartScan }) {
         title={
           <>
             The last scan (
-            <Link to={`/scans/${latest.id}`} className="text-accent hover:underline">
+            <Link to={`/scans/${latest.id}`} className="text-link hover:underline">
               #{latest.id}
             </Link>
             ) failed
