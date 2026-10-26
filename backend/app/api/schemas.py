@@ -5,10 +5,24 @@ API's public contract: FastAPI validates input against them, strips anything
 not listed from output, and generates the /docs page from them.
 """
 
-from datetime import datetime
-from typing import Any
+from datetime import datetime, timezone
+from typing import Annotated, Any
 
-from pydantic import BaseModel, Field
+from pydantic import AfterValidator, BaseModel, Field
+
+
+def _as_utc(value: datetime) -> datetime:
+    # A datetime without a timezone is UTC in NetSense (that is how SQLite
+    # hands them back); one with a timezone is converted to UTC.
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+# Every timestamp the API returns: always UTC and always written with a "Z"
+# (2026-10-26T19:57:20.604724Z), so a browser can never read it as its own
+# local time. Use this instead of datetime in every schema.
+UTCDatetime = Annotated[datetime, AfterValidator(_as_utc)]
 
 
 class Health(BaseModel):
@@ -58,7 +72,7 @@ class ScanResult(BaseModel):
     open_ports: list[Port]
     device_type: str
     reason: str
-    seen_at: datetime
+    seen_at: UTCDatetime
 
 
 class DeviceChange(BaseModel):
@@ -89,8 +103,8 @@ class ScanSummary(BaseModel):
     id: int
     status: str = Field(description="running, completed or failed")
     subnet: str
-    started_at: datetime
-    finished_at: datetime | None
+    started_at: UTCDatetime
+    finished_at: UTCDatetime | None
     error: str | None
     device_count: int
 
@@ -102,7 +116,7 @@ class ScanProgress(BaseModel):
         description="discovery (ARP), services (Nmap) or saving (classify and save). "
         "Null when the scan is not running, or runs in another process (a script)."
     )
-    step_started_at: datetime | None
+    step_started_at: UTCDatetime | None
     hosts_found: int | None = Field(description="Devices that answered ARP, once discovery is done.")
 
 
@@ -114,8 +128,8 @@ class ScanDetail(ScanSummary):
 class Device(BaseModel):
     id: int
     mac: str
-    first_seen: datetime
-    last_seen: datetime
+    first_seen: UTCDatetime
+    last_seen: UTCDatetime
     last_ip: str
     vendor: str
     virtualization: str | None = Field(
@@ -135,8 +149,8 @@ class ConfigBackup(BaseModel):
     """A stored running-config version. The text itself is not exposed."""
 
     id: int
-    collected_at: datetime = Field(description="When this version was first seen.")
-    last_seen_at: datetime = Field(description="When it was last confirmed unchanged.")
+    collected_at: UTCDatetime = Field(description="When this version was first seen.")
+    last_seen_at: UTCDatetime = Field(description="When it was last confirmed unchanged.")
     sha256: str = Field(description="Hash of the config with timestamp lines removed.")
     lines: int
     changed: bool | None = Field(
@@ -175,7 +189,7 @@ class CollectResult(BaseModel):
     device_type: str = Field(description="router or switch, as confirmed by this login.")
     type_reason: str
     collection_id: int
-    collected_at: datetime
+    collected_at: UTCDatetime
     collected: dict[str, int | None] = Field(
         description="What was read, by kind: the number of rows parsed, or null if the "
         "output was stored as raw text."
@@ -202,7 +216,7 @@ class DeviceCollectionResult(BaseModel):
     status: str = Field(description="pending, success or failed")
     error: str | None
     note: str | None
-    collected_at: datetime
+    collected_at: UTCDatetime
     collected: dict[str, int | None]
     config_changed: bool | None
 
@@ -210,8 +224,8 @@ class DeviceCollectionResult(BaseModel):
 class NetworkCollectionSummary(BaseModel):
     id: int
     status: str = Field(description="running, completed or failed")
-    started_at: datetime
-    finished_at: datetime | None
+    started_at: UTCDatetime
+    finished_at: UTCDatetime | None
     device_count: int
     succeeded: int
     failed: int
@@ -224,7 +238,7 @@ class NetworkCollectionDetail(NetworkCollectionSummary):
 
 class CollectedData(BaseModel):
     device_id: int
-    collected_at: datetime
+    collected_at: UTCDatetime
     data: list[dict[str, Any]] | str = Field(
         description="A list of rows when TextFSM parsed the output, otherwise the raw CLI text."
     )
@@ -302,7 +316,7 @@ class ManagementView(BaseModel):
 
 class Topology(BaseModel):
     collection_id: int
-    collected_at: datetime
+    collected_at: UTCDatetime
     version: int
     nodes: list[TopologyNode]
     links: list[TopologyLink]
@@ -329,8 +343,8 @@ class BaselineDevice(BaseModel):
 class Baseline(BaseModel):
     id: int
     collection_id: int
-    collected_at: datetime
-    set_at: datetime
+    collected_at: UTCDatetime
+    set_at: UTCDatetime
     note: str | None
     devices: list[BaselineDevice]
 
@@ -399,8 +413,8 @@ class DriftReport(BaseModel):
 class DriftCheckSummary(BaseModel):
     id: int
     status: str = Field(description="running, completed or failed")
-    started_at: datetime
-    finished_at: datetime | None
+    started_at: UTCDatetime
+    finished_at: UTCDatetime | None
     error: str | None
     baseline_collection_id: int
     collection_id: int

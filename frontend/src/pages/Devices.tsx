@@ -19,7 +19,7 @@ import {
   TypeBadge,
   VirtualBadge,
 } from '../components/ui'
-import { ipSortKey } from '../format'
+import { ipSortKey, parseTime } from '../format'
 import { isPresent, useDevices, useLatestCompletedScan, useTopology } from '../queries'
 
 type Column = 'ip' | 'name' | 'status' | 'type' | 'mac' | 'vendor' | 'seen'
@@ -59,7 +59,7 @@ export default function Devices() {
       type: (device) => device.device_type,
       mac: (device) => device.mac,
       vendor: (device) => device.vendor,
-      seen: (device) => Date.parse(device.last_seen),
+      seen: (device) => parseTime(device.last_seen),
     },
   )
   const upCount = all.filter(up).length

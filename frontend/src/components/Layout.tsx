@@ -20,6 +20,7 @@ import { useCommandPaletteShortcut } from './shortcuts'
 import { LogoMark, Wordmark } from './Logo'
 import { Loading, MessageBar, RelativeTime, Spinner, StatusDot } from './ui'
 import type { Status } from './ui'
+import { parseTime } from '../format'
 
 const NAV: { to: string; label: string; end: boolean; icon: IconName }[] = [
   { to: '/', label: 'Overview', end: true, icon: 'overview' },
@@ -209,7 +210,7 @@ function BaselineStatus() {
       </Link>
     )
   }
-  const date = new Date(baseline.data.collected_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  const date = new Date(parseTime(baseline.data.collected_at)).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
   const check = checks.data?.find(
     (item) => item.status === 'completed' && item.baseline_collection_id === baseline.data!.collection_id,
   )

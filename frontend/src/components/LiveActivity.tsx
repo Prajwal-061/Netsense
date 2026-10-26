@@ -4,6 +4,7 @@ import type { DeviceCollectionResult, NetworkCollectionSummary, ScanProgress, Sc
 import { useCollection, useCollections, useDriftChecks, useScanProgress, useScans } from '../queries'
 import { clock, useNow } from './controls'
 import { Spinner, StatusDot } from './ui'
+import { parseTime } from '../format'
 
 /**
  * Whatever is running right now (a scan, a collection, a drift check), as a
@@ -41,7 +42,7 @@ function typical(jobs: { started_at: string; finished_at: string | null }[]): nu
   const seconds = jobs
     .slice(0, 10)
     .filter((job) => job.finished_at)
-    .map((job) => (Date.parse(job.finished_at!) - Date.parse(job.started_at)) / 1000)
+    .map((job) => (parseTime(job.finished_at!) - parseTime(job.started_at)) / 1000)
     .sort((a, b) => a - b)
   return seconds.length ? Math.round(seconds[Math.floor(seconds.length / 2)]) : null
 }
@@ -56,7 +57,7 @@ function ScanConsole({ scan, typicalSeconds }: { scan: ScanSummary; typicalSecon
   const progress = useScanProgress(scan.id).data
   const now = useNow()
   const current = progress?.step ? SCAN_STEPS.findIndex((step) => step.key === progress.step) : -1
-  const stepSeconds = progress?.step_started_at ? (now - Date.parse(progress.step_started_at)) / 1000 : null
+  const stepSeconds = progress?.step_started_at ? (now - parseTime(progress.step_started_at)) / 1000 : null
 
   return (
     <Console
@@ -150,7 +151,7 @@ function Console({
   children: ReactNode
 }) {
   const now = useNow()
-  const elapsed = (now - Date.parse(startedAt)) / 1000
+  const elapsed = (now - parseTime(startedAt)) / 1000
   return (
     <section role="status" className="overflow-hidden rounded border border-line border-l-[3px] border-l-accent bg-surface">
       <header className="flex flex-wrap items-center gap-x-3 gap-y-0.5 px-3 py-1.5">

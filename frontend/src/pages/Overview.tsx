@@ -23,6 +23,7 @@ import {
   useTopology,
 } from '../queries'
 import TopologyMap from '../topology/TopologyMap'
+import { parseTime } from '../format'
 
 /** How many past scans, collections and checks the sparklines show. */
 const HISTORY = 20
@@ -420,7 +421,7 @@ function Timeline({
       to: `/devices/${device.id}`,
     })),
   ]
-    .sort((a, b) => Date.parse(b.at) - Date.parse(a.at))
+    .sort((a, b) => parseTime(b.at) - parseTime(a.at))
     .slice(0, 10)
 
   if (events.length === 0) return <EmptyState>Nothing has happened yet.</EmptyState>

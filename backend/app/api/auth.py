@@ -1,12 +1,11 @@
 """Login, logout and "who am I" routes, and the dependency that protects the rest."""
 
-from datetime import datetime
-
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_session
+from app.api.schemas import UTCDatetime
 from app.core.config import Settings, get_settings
 from app.db.models import AuthSession
 from app.services import auth_service
@@ -23,7 +22,7 @@ class LoginRequest(BaseModel):
 
 class Me(BaseModel):
     username: str
-    expires_at: datetime
+    expires_at: UTCDatetime
 
 
 def require_admin(request: Request, session: Session = Depends(get_session)) -> AuthSession:
