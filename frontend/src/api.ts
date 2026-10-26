@@ -10,7 +10,7 @@ export const API_URL: string = (
  * backend/app/api/health.py. A backend reporting a lower number (or none) is
  * running older code, usually because it was not restarted after an update.
  */
-export const REQUIRED_API_REVISION = 6
+export const REQUIRED_API_REVISION = 7
 
 export class ApiError extends Error {
   /** HTTP status code, or null when no answer could be read. */
@@ -352,7 +352,10 @@ export interface NetworkCollectionDetail extends NetworkCollectionSummary {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response
   try {
-    response = await fetch(API_URL + path, init)
+    // "include": send the session cookie. The dashboard (port 5173) and the
+    // API (port 8000) are different origins, and a browser only sends cookies
+    // to another origin when the request asks for it.
+    response = await fetch(API_URL + path, { ...init, credentials: 'include' })
   } catch {
     // fetch only rejects when no readable HTTP response arrived. The page is
     // not told why, so find out which of the two usual reasons it is.
@@ -361,6 +364,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     throw new ApiError(response.status, await errorDetail(response))
   }
+  if (response.status === 204) return undefined as T
   return (await response.json()) as T
 }
 
@@ -372,7 +376,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 async function whyNoAnswer(path: string, method: string): Promise<ApiError> {
   if (path !== '/health') {
     try {
-      const probe = await fetch(API_URL + '/health')
+      const probe = await fetch(API_URL + '/health', { credentials: 'include' })
       if (probe.ok) {
         return new ApiError(
           null,
@@ -420,6 +424,19 @@ export const startCollection = () =>
   request<NetworkCollectionDetail>('/collections', { method: 'POST' })
 export const getTopology = (collectionId?: number) =>
   request<Topology>(collectionId === undefined ? '/topology' : `/topology?collection_id=${collectionId}`)
+export interface Me {
+  username: string
+  expires_at: string
+}
+
+export const getMe = () => request<Me>('/auth/me')
+export const login = (username: string, password: string) =>
+  request<Me>('/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  })
+export const logout = () => request<void>('/auth/logout', { method: 'POST' })
 export const getBaseline = () => request<Baseline>('/baseline')
 export const setBaseline = (collectionId: number, note: string) =>
   request<Baseline>('/baseline', {

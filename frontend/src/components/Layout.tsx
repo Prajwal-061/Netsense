@@ -1,7 +1,15 @@
-import { Link, NavLink, Outlet } from 'react-router-dom'
+import { Link, Navigate, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { REQUIRED_API_REVISION } from '../api'
-import { useCollections, useHealth, useRefreshWhenScanFinishes, useScans } from '../queries'
-import { ErrorBox, Spinner } from './ui'
+import {
+  useCollections,
+  useHealth,
+  useLogout,
+  useMe,
+  useRefreshWhenScanFinishes,
+  useScans,
+  useWatchForExpiredSession,
+} from '../queries'
+import { ErrorBox, Loading, Spinner } from './ui'
 
 const NAV = [
   { to: '/', label: 'Overview', end: true },
@@ -13,6 +21,21 @@ const NAV = [
 ]
 
 export default function Layout() {
+  const me = useMe()
+  const location = useLocation()
+  useWatchForExpiredSession()
+
+  if (me.isPending) return <Loading label="Checking login..." />
+  if (me.data === null) {
+    // Not logged in: go to the login page, and come back here afterwards.
+    return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />
+  }
+  // me.isError means the API could not be asked; the pages show that themselves.
+  return <SignedInLayout username={me.data?.username} />
+}
+
+function SignedInLayout({ username }: { username?: string }) {
+  const logout = useLogout()
   useRefreshWhenScanFinishes()
   const health = useHealth()
   const { data: scans } = useScans()
@@ -58,6 +81,19 @@ export default function Layout() {
                 <Spinner className="h-3 w-3" />
                 Collecting {collecting.device_count - collecting.pending}/{collecting.device_count}
               </Link>
+            )}
+            {username && (
+              <span className="flex items-center gap-2 text-slate-300">
+                {username}
+                <button
+                  type="button"
+                  onClick={() => logout.mutate()}
+                  disabled={logout.isPending}
+                  className="rounded border border-slate-600 px-2 py-0.5 text-slate-200 hover:bg-slate-800"
+                >
+                  Log out
+                </button>
+              </span>
             )}
             <span className="flex items-center gap-1.5 text-slate-300">
               <span

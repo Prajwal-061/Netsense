@@ -693,7 +693,10 @@ def test_cors_allows_every_method_the_api_uses(client):
     # CORS method"), and the dashboard could only report "API not reachable".
     from app.main import ALLOWED_METHODS, app
 
-    used = {method for route in app.routes for method in getattr(route, "methods", set())} - {"HEAD"}
+    # Read from the OpenAPI description: app.routes does not list the routes'
+    # methods in this FastAPI version, which once made this check vacuous.
+    used = {method.upper() for operations in app.openapi()["paths"].values() for method in operations}
+    assert {"GET", "POST", "PUT"} <= used
     assert used <= set(ALLOWED_METHODS)
 
     for method, path in [("PUT", "/baseline"), ("POST", "/drift-checks"), ("POST", "/collections"), ("GET", "/devices")]:

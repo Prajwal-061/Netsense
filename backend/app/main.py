@@ -15,7 +15,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
-from app.api import collections, devices, drift, health, scans, topology
+from fastapi import Depends
+
+from app.api import auth, collections, devices, drift, health, scans, topology
 from app.api.deps import get_engine
 from app.core.config import get_settings
 from app.db.database import is_migrated, migration_status
@@ -116,12 +118,19 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=get_settings().cors_origins,
     allow_methods=ALLOWED_METHODS,
-    allow_headers=["*"],
+    allow_headers=["Content-Type"],
+    # Lets the browser send the session cookie with the dashboard's requests.
+    # Only safe with an explicit list of origins, never "*".
+    allow_credentials=True,
 )
 
+# Public: the health check (the dashboard uses it to tell "API down" from
+# "not logged in") and the login routes. Everything else needs a session.
 app.include_router(health.router)
-app.include_router(scans.router)
-app.include_router(collections.router)
-app.include_router(topology.router)
-app.include_router(drift.router)
-app.include_router(devices.router)
+app.include_router(auth.router)
+protected = [Depends(auth.require_admin)]
+app.include_router(scans.router, dependencies=protected)
+app.include_router(collections.router, dependencies=protected)
+app.include_router(topology.router, dependencies=protected)
+app.include_router(drift.router, dependencies=protected)
+app.include_router(devices.router, dependencies=protected)

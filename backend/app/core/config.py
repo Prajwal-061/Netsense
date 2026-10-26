@@ -35,11 +35,15 @@ class Settings(BaseSettings):
 
     # Web pages allowed to call the API from a browser (CORS), comma-separated.
     # The defaults are the Vite dev server (port 5173) on a laptop or on this VM.
-    cors_origins: Annotated[list[str], NoDecode] = [
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://192.168.17.132:5173",
-    ]
+    # Only the dashboard's own origin: the API sends cookies cross-origin to
+    # whatever is listed here, so keep it to the one page that needs them.
+    cors_origins: Annotated[list[str], NoDecode] = ["http://192.168.17.132:5173"]
+
+    # How long a login lasts before the admin has to log in again.
+    session_hours: int = 8
+    # Send the session cookie over HTTPS only. Leave off in the lab (plain
+    # HTTP); turn on once NetSense is served over HTTPS.
+    session_cookie_secure: bool = False
 
     @field_validator("allowed_subnets", "cors_origins", mode="before")
     @classmethod

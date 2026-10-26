@@ -246,3 +246,29 @@ class DriftCheck(Base):
 
     baseline: Mapped[Baseline] = relationship()
     network_collection: Mapped[NetworkCollection] = relationship()
+
+
+class AdminUser(Base):
+    """The one user who may use the dashboard and API. Created with scripts/create_admin.py."""
+
+    __tablename__ = "admin_users"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    username: Mapped[str] = mapped_column(String(64), unique=True)
+    # argon2id hash: algorithm, parameters, salt and hash in one string.
+    password_hash: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class AuthSession(Base):
+    """A logged-in browser. The cookie holds a random token; only its hash is stored."""
+
+    __tablename__ = "auth_sessions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("admin_users.id", ondelete="CASCADE"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime)
+
+    user: Mapped[AdminUser] = relationship()

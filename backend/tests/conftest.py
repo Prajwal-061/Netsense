@@ -38,12 +38,45 @@ def session(engine):
         yield session
 
 
-@pytest.fixture
-def client(engine):
-    """An HTTP client wired to the API, with the API using the test database."""
+def _api_client(engine):
     from app.api.deps import get_engine
     from app.main import app
 
     app.dependency_overrides[get_engine] = lambda: engine
-    yield TestClient(app)
+    return TestClient(app)
+
+
+@pytest.fixture
+def anon_client(engine):
+    """An HTTP client that has not logged in."""
+    from app.services import auth_service
+
+    auth_service.login_limiter._failures.clear()
+    yield _api_client(engine)
+    from app.main import app
+
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def client(engine):
+    """An HTTP client logged in as the admin, with the API using the test database.
+
+    The session is created directly: hashing a password with argon2 for every
+    test would make the suite slow. Logging in for real is tested in test_auth.py.
+    """
+    from app.api.auth import COOKIE_NAME
+    from app.db.models import AdminUser
+    from app.services import auth_service
+
+    with Session(engine) as session:
+        user = AdminUser(username="admin", password_hash="not-used-here")
+        session.add(user)
+        session.commit()
+        token, _ = auth_service.create_session(session, user, hours=1)
+    api = _api_client(engine)
+    api.cookies.set(COOKIE_NAME, token)
+    yield api
+    from app.main import app
+
     app.dependency_overrides.clear()

@@ -106,6 +106,8 @@ export const SCAN_3: ScanDetail = {
   },
 }
 
+export const ME = { username: 'admin', expires_at: '2026-10-26T15:00:00Z' }
+
 export const HEALTH: Health = {
   status: 'ok',
   api_revision: REQUIRED_API_REVISION,
@@ -264,6 +266,7 @@ export function installFakeApi(overrides: Record<string, Reply> = {}): FakeApi {
     bodies: {},
     routes: {
       'GET /health': HEALTH,
+      'GET /auth/me': ME,
       'GET /scans': [scan(3, 'completed'), scan(2, 'completed', { device_count: 2 }), scan(1, 'completed')],
       'GET /scans/3': SCAN_3,
       'GET /collections': [],
@@ -278,6 +281,8 @@ export function installFakeApi(overrides: Record<string, Reply> = {}): FakeApi {
     const key = `${init?.method ?? 'GET'} ${pathname}${search}`
     api.calls.push(key)
     if (typeof init?.body === 'string') api.bodies[key] = JSON.parse(init.body)
+    // The session cookie only travels when a request asks for it.
+    if (init?.credentials !== 'include') throw new Error(`${key} was sent without credentials: 'include'`)
     if (api.offline) throw new TypeError('Failed to fetch')
 
     const route = api.routes[key]

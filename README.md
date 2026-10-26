@@ -88,6 +88,11 @@ cp ../.env.example ../.env      # then edit ../.env
 # Create the SQLite database, backend/netsense.db (never with sudo)
 alembic upgrade head
 
+# Create the admin account the dashboard logs in with. It asks for a
+# password (at least 10 characters) and stores only an argon2id hash.
+# Run it again at any time to set a new password; that logs everyone out.
+python scripts/create_admin.py
+
 # Run the tests. They mock the network, so no lab is needed.
 pytest
 ```
@@ -156,7 +161,7 @@ Each update can add database tables. Stop the backend, run `alembic upgrade head
 | API docs (try the endpoints) | http://192.168.17.132:8000/docs |
 | API health | http://192.168.17.132:8000/health |
 
-The API has **no authentication yet**, so run it only on an isolated lab network.
+Log in with the admin account from step 1. Every API endpoint except `/health` and `/auth/login` needs that login: the dashboard keeps it in an HttpOnly session cookie for 8 hours (`SESSION_HOURS` in `.env`). Open the dashboard through the same host name as the API (`192.168.17.132` for both), or the browser will not send the cookie. NetSense serves plain HTTP in the lab; once it runs behind HTTPS, set `SESSION_COOKIE_SECURE=true`.
 
 ### Command-line scripts
 

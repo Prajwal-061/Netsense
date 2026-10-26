@@ -54,7 +54,7 @@ backend/.venv/        virtual environment (not committed)
 frontend/             React dashboard: Vite + React + TypeScript, Tailwind CSS, TanStack Query
 frontend/src/api.ts       typed API client (mirrors backend/app/api/schemas.py)
 frontend/src/queries.ts   TanStack Query hooks: all fetching, polling and cache refresh
-frontend/src/pages/       Overview, NetworkHealth, Devices, DeviceDetail, Scans, ScanDetail, Collections, Topology
+frontend/src/pages/       Login, Overview, NetworkHealth, Devices, DeviceDetail, Scans, ScanDetail, Collections, Topology
 frontend/src/topology/    the map: flow.ts (layout and styling), TopologyMap (shared by Topology and Network health), DeviceNode, LinkEdge
 frontend/src/components/  shared UI; frontend/src/test/fakeApi.ts fakes the API in tests
 lab/                  CML topology and switch configs
@@ -73,6 +73,7 @@ alembic revision --autogenerate -m "what changed"            # new migration aft
 python scripts/collect_switch.py                             # collect from the lab switch (SSH, show commands only)
 python scripts/discover.py                                   # ARP scan of the lab network
 python scripts/scan.py                                       # ARP scan + Nmap + classifier, saved, prints changes
+python scripts/create_admin.py                               # create the dashboard admin, or set a new password
 
 # Frontend (from frontend/; in a non-interactive shell run `. ~/.nvm/nvm.sh` first)
 npm run dev -- --host            # dashboard at http://192.168.17.132:5173 (API must be running too)
@@ -92,7 +93,10 @@ Every change to `app/db/models.py` needs a migration; `tests/test_db.py` fails i
 
 ## API
 
-- **No authentication yet. It is required before NetSense runs on any real network.** Anyone who can reach the port can start scans and make the server SSH into devices with the stored credentials. Until then: lab network only, and bind uvicorn to the lab address (192.168.17.132), never 0.0.0.0, so it is not served on the NAT interface.
+- **Authentication** (`app/services/auth_service.py`, `app/api/auth.py`): one admin user, created or reset with `python scripts/create_admin.py` (argon2id hash, at least 10 characters; resetting deletes all sessions). `POST /auth/login` sets `netsense_session`, an HttpOnly, SameSite=Strict cookie holding a random token; the `auth_sessions` table stores only its SHA-256 and an absolute expiry (`SESSION_HOURS`, default 8). Logout deletes the row. Every router except `health` and `auth` is included with `dependencies=[Depends(auth.require_admin)]`; a new router must be too (`tests/test_auth.py` checks every route from the OpenAPI description). Failed logins: 5 per client address per 15 minutes, in memory (`LoginRateLimiter`), then 429.
+- The cookie only works when the dashboard and API share a host name (SameSite compares the site, not the port); `CORS_ORIGINS` defaults to only `http://192.168.17.132:5173` and CORS allows credentials, so never set it to `*`. `SESSION_COOKIE_SECURE` must stay false on plain HTTP or the browser drops the cookie. `/docs` and `/openapi.json` stay public (schema only, no data).
+- Still lab-only: no HTTPS, so the login and cookie cross the network unencrypted. Bind uvicorn to the lab address rather than 0.0.0.0 when possible.
+- Test fixtures: `client` is logged in (session created directly, no argon2 cost); `anon_client` is not.
 - The API must not run as root. ARP scans need CAP_NET_RAW; `GET /health` reports `raw_sockets` true/false. Without it, `POST /scans` is accepted and the scan is then saved as failed with the reason. Dev setup (README, "Letting the API scan without root"), applied on this VM: `backend/.venv` is built with `python3 -m venv --copies`, `.venv/bin/python3` and `python3.12` are symlinks to `.venv/bin/python`, and that one file has `cap_net_raw=ep` (the user ran `sudo setcap cap_net_raw+ep .venv/bin/python`). `setcap` takes one capability and one file per pair; a list of files after one capability only sets the first. Rebuilding the venv drops the capability: rebuild with `--copies`, recreate the two symlinks, and have the user repeat the setcap. Never setcap a symlinked venv: that would change `/usr/bin/python3`. On the Pi: a systemd unit with a dedicated user and `AmbientCapabilities=CAP_NET_RAW`.
 - Nmap does not inherit file capabilities from Python, so `scanner._nmap_prefix` starts it through `app/engine/pass_caps.py`, which raises `CAP_NET_RAW` into the ambient set and execs `nmap --privileged -sS`. `/usr/bin/nmap` has no capabilities and must stay that way. With neither root nor the capability the scanner falls back to a connect scan (`-sT`). `cap_net_admin` is not needed.
 - One scan at a time (`scan_service.start_scan` raises `ScanInProgressError`, the API answers 409). The lock is per process, so run a single uvicorn worker. Scans left "running" by a crash are marked failed at API start-up.
@@ -138,7 +142,7 @@ Every change to `app/db/models.py` needs a migration; `tests/test_db.py` fails i
 ## After changing backend code
 
 - A running backend keeps the code it started with. After any backend change, the user's API must be restarted (or be running with `--reload`) before the feature is tested, and `alembic upgrade head` must have been run. Check the running process, not just the tests: `curl -s http://127.0.0.1:8000/health` shows `api_revision`, and `/openapi.json` lists the routes it really serves. On 2026-10-08 a backend started before the config-diff feature produced three "bugs" at once: 422 "valid integer" on `/configs/diff`, wrong "no change" badges, and duplicate backups with old-style hashes.
-- `API_REVISION` in `backend/app/api/health.py` and `REQUIRED_API_REVISION` in `frontend/src/api.ts` must be equal (currently 6). Add 1 to both whenever an endpoint or response field the dashboard uses is added or changed. The dashboard shows a warning banner when the backend reports a lower number.
+- `API_REVISION` in `backend/app/api/health.py` and `REQUIRED_API_REVISION` in `frontend/src/api.ts` must be equal (currently 7). Add 1 to both whenever an endpoint or response field the dashboard uses is added or changed. The dashboard shows a warning banner when the backend reports a lower number.
 - The API refuses to start when the database is not at the newest migration (`database.migration_status`), with a message to run `alembic upgrade head`.
 - Never apply a migration that changes how stored data is interpreted while an old backend is still running against the same database: the old code then writes inconsistent rows (migration `0003` repairs the config backups this produced).
 
@@ -161,4 +165,5 @@ Every change to `app/db/models.py` needs a migration; `tests/test_db.py` fails i
 ## Status
 
 - Done: foundation, settings loading (`app/core/config.py`, pydantic-settings), device collector (`app/engine/collector.py`, Netmiko + TextFSM), ARP discovery (`app/engine/discovery.py`, Scapy, offline OUI vendor lookup), Nmap service scanner (`app/engine/scanner.py`, XML parsed with ElementTree), device classifier (`app/engine/classifier.py`: scan-based guesses, confirmation by login, virtualisation as a separate attribute), database models and Alembic migrations, scan service with change detection between scans, config backups with normalised hashing and diffs, collection from all routers and switches in parallel (routes, OSPF, STP, trunks, CDP, ARP), topology built from each collection and drawn as an interactive map, baselines and drift checks with probable-cause correlation (Network health page), FastAPI backend (scans in the background, devices, collection, CORS), React dashboard (overview, devices, device detail with collection, scan history). Backend and frontend both have tests that need no lab.
-- Not built yet: authentication, scheduled drift checks and alerts, deployment on the Pi.
+- Done also: single-admin authentication with session cookies.
+- Not built yet: HTTPS, scheduled drift checks and alerts, deployment on the Pi.

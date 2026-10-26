@@ -9,6 +9,76 @@ import * as api from './api'
 const POLL_RUNNING_MS = 2_000
 const POLL_IDLE_MS = 30_000
 
+/** Who is logged in: the user, or null when not logged in (the API answers 401). */
+export function useMe() {
+  return useQuery({
+    queryKey: ['me'],
+    queryFn: async () => {
+      try {
+        return await api.getMe()
+      } catch (error) {
+        if (error instanceof api.ApiError && error.status === 401) return null
+        throw error
+      }
+    },
+    staleTime: 60_000,
+  })
+}
+
+function forgetAllBut(queryClient: ReturnType<typeof useQueryClient>, key: string) {
+  queryClient.removeQueries({ predicate: (query) => query.queryKey[0] !== key })
+  queryClient.getMutationCache().clear()
+}
+
+export function useLogin() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ username, password }: { username: string; password: string }) => api.login(username, password),
+    onSuccess: (me) => {
+      queryClient.setQueryData(['me'], me)
+      // Anything cached before logging in was a 401: start clean.
+      forgetAllBut(queryClient, 'me')
+    },
+  })
+}
+
+export function useLogout() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: api.logout,
+    onSettled: () => {
+      // Show the login page, and forget everything this session saw. The
+      // login state is updated in place, not cleared: queryClient.clear()
+      // would detach the page from it, and the page would never notice.
+      queryClient.setQueryData(['me'], null)
+      forgetAllBut(queryClient, 'me')
+    },
+  })
+}
+
+/**
+ * When any request is refused with 401 (the session expired, or the admin
+ * logged out in another tab), check who is logged in again. The layout then
+ * sends the browser to the login page.
+ */
+export function useWatchForExpiredSession() {
+  const queryClient = useQueryClient()
+  useEffect(() => {
+    const refused = (error: unknown) => error instanceof api.ApiError && error.status === 401
+    const recheck = () => void queryClient.invalidateQueries({ queryKey: ['me'] })
+    const stopQueries = queryClient.getQueryCache().subscribe((event) => {
+      if (event.type === 'updated' && event.query.queryKey[0] !== 'me' && refused(event.query.state.error)) recheck()
+    })
+    const stopMutations = queryClient.getMutationCache().subscribe((event) => {
+      if (event.type === 'updated' && refused(event.mutation?.state.error)) recheck()
+    })
+    return () => {
+      stopQueries()
+      stopMutations()
+    }
+  }, [queryClient])
+}
+
 export function useHealth() {
   return useQuery({ queryKey: ['health'], queryFn: api.getHealth, refetchInterval: 10_000 })
 }

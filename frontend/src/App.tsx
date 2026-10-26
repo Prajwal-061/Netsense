@@ -4,6 +4,7 @@ import { EmptyState } from './components/ui'
 import Collections from './pages/Collections'
 import DeviceDetail from './pages/DeviceDetail'
 import Devices from './pages/Devices'
+import Login from './pages/Login'
 import NetworkHealth from './pages/NetworkHealth'
 import Overview from './pages/Overview'
 import ScanDetail from './pages/ScanDetail'
@@ -13,6 +14,7 @@ import TopologyPage from './pages/Topology'
 export default function App() {
   return (
     <Routes>
+      <Route path="login" element={<Login />} />
       <Route element={<Layout />}>
         <Route index element={<Overview />} />
         <Route path="network-health" element={<NetworkHealth />} />

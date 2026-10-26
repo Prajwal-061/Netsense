@@ -10,6 +10,7 @@ import App from './App'
 import {
   BLOCKED,
   BACKUP,
+  ME,
   BACKUP_2,
   COLLECT_RESULT,
   collectionRun,
@@ -778,4 +779,73 @@ test('a request the browser blocks while the API is up is not called unreachable
   expect(alert).toHaveTextContent('is running, but the browser blocked its answer to PUT /baseline')
   expect(alert).toHaveTextContent('CORS')
   expect(screen.queryByText('API not reachable')).not.toBeInTheDocument()
+})
+
+// --- logging in --------------------------------------------------------------
+
+test('without a session every page sends you to the login page, and back after logging in', async () => {
+  const api = installFakeApi({ 'GET /auth/me': new Failure(401, 'Not logged in.') })
+  const user = open('/devices')
+
+  expect(await screen.findByRole('button', { name: 'Log in' })).toBeInTheDocument()
+  expect(screen.queryByRole('navigation')).not.toBeInTheDocument()
+
+  // A wrong password shows the server's answer.
+  api.routes['POST /auth/login'] = new Failure(401, 'Wrong username or password.')
+  await user.type(screen.getByLabelText('Password'), 'not it')
+  await user.click(screen.getByRole('button', { name: 'Log in' }))
+  expect(await screen.findByText('Wrong username or password.')).toBeInTheDocument()
+
+  // The right one goes back to the page that was asked for.
+  api.routes['POST /auth/login'] = ME
+  api.routes['GET /auth/me'] = ME
+  await user.clear(screen.getByLabelText('Password'))
+  await user.type(screen.getByLabelText('Password'), 'correct horse battery')
+  await user.click(screen.getByRole('button', { name: 'Log in' }))
+
+  expect(await screen.findByRole('heading', { name: 'Devices' })).toBeInTheDocument()
+  expect(api.bodies['POST /auth/login']).toEqual({ username: 'admin', password: 'correct horse battery' })
+  expect(screen.getByText('admin')).toBeInTheDocument()
+})
+
+test('too many failed logins are explained', async () => {
+  installFakeApi({
+    'GET /auth/me': new Failure(401, 'Not logged in.'),
+    'POST /auth/login': new Failure(429, 'Too many failed logins. Try again in 15 minute(s).'),
+  })
+  const user = open('/login')
+
+  await user.type(await screen.findByLabelText('Password'), 'guess')
+  await user.click(screen.getByRole('button', { name: 'Log in' }))
+
+  expect(await screen.findByText('Too many failed logins. Try again in 15 minute(s).')).toBeInTheDocument()
+})
+
+test('a session that expires while the dashboard is open leads to the login page', async () => {
+  const api = installFakeApi()
+  const user = open('/')
+  expect(await screen.findByRole('heading', { name: 'Overview' })).toBeInTheDocument()
+
+  // The session ends on the server: every request is now refused.
+  api.routes['GET /auth/me'] = new Failure(401, 'Your session has expired. Log in again.')
+  api.routes['POST /scans'] = new Failure(401, 'Your session has expired. Log in again.')
+  await user.click(screen.getByRole('button', { name: 'Start scan' }))
+
+  expect(await screen.findByRole('button', { name: 'Log in' })).toBeInTheDocument()
+})
+
+test('logging out ends the session and shows the login page', async () => {
+  const api = installFakeApi({
+    // Like the server: after logout the session no longer exists.
+    'POST /auth/logout': () => {
+      api.routes['GET /auth/me'] = new Failure(401, 'Not logged in.')
+      return {}
+    },
+  })
+  const user = open('/devices')
+
+  await user.click(await screen.findByRole('button', { name: 'Log out' }))
+
+  expect(await screen.findByRole('button', { name: 'Log in' })).toBeInTheDocument()
+  expect(api.calls).toContain('POST /auth/logout')
 })

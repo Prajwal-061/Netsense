@@ -10,3 +10,4 @@ alembic
 fastapi
 uvicorn
 httpx2
+argon2-cffi
