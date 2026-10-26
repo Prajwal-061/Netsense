@@ -288,10 +288,11 @@ export function useDevice(id: number) {
   return useQuery({ queryKey: ['devices', id], queryFn: () => api.getDevice(id) })
 }
 
-export function useCollected(id: number, kind: api.CollectedKind) {
+export function useCollected(id: number, kind: api.CollectedKind, enabled = true) {
   return useQuery({
     queryKey: ['devices', id, kind],
     queryFn: () => api.getCollected(id, kind),
+    enabled,
   })
 }
 

@@ -120,6 +120,19 @@ Numbers in tables use tabular figures so columns line up.
 - **Drift findings:** incident list. Each finding has a 3px left border in its
   severity colour. A probable cause is shown with its effects indented below
   it, joined by a thin tree line.
+- **Faceplate** (`Faceplate.tsx`, data from `faceplate.ts`): a router's or
+  switch's front panel, one jack per physical port grouped by slot. The jack
+  is coloured by state (up `ok`, down `crit`, admin down dashed and empty)
+  and labelled with the access VLAN, `T` (trunk) or `L3` (routed); the LED
+  above it turns `warn` when spanning tree blocks the port. Hover or focus
+  shows VLANs, CDP neighbour, MAC (or ARP) count, STP and OSPF state. The
+  legend lists only the markings the panel uses. Subinterfaces make their
+  parent a trunk; SVIs and loopbacks are listed as chips under the panel.
+- **Config and diff view** (`CodeView.tsx`, highlighting in `ios.ts`): line
+  numbers, IOS syntax colours (`code-keyword`, `code-interface`,
+  `code-address`, `code-number`, `code-string`; comments `fg-subtle`, `no`
+  and `shutdown` `crit`), unified or side by side. These five tokens are the
+  only colours outside the status palette, and only inside code.
 - **Buttons:** 28px high. Primary is `accent` filled, secondary is outlined in
   `line-strong`; destructive actions do not exist in NetSense.
 - **Loading:** skeleton rows the height of real rows, not spinners in the

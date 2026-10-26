@@ -35,6 +35,13 @@
   --color-unknown: var(--ns-unknown);
 
   --shadow-float: var(--ns-shadow);
+
+  /* Syntax colours for Cisco IOS configuration (code view and diffs only). */
+  --color-code-keyword: var(--ns-code-keyword);
+  --color-code-interface: var(--ns-code-interface);
+  --color-code-address: var(--ns-code-address);
+  --color-code-number: var(--ns-code-number);
+  --color-code-string: var(--ns-code-string);
 }
 
 :root,
@@ -54,6 +61,11 @@
   --ns-crit: #f0524a;
   --ns-unknown: #6e7781;
   --ns-shadow: 0 8px 24px rgb(0 0 0 / 0.35);
+  --ns-code-keyword: #79b8ff;
+  --ns-code-interface: #d2a8ff;
+  --ns-code-address: #56d4dd;
+  --ns-code-number: #f2a65a;
+  --ns-code-string: #a5b3c2;
 }
 
 :root[data-theme='light'] {
@@ -72,6 +84,11 @@
   --ns-crit: #cf222e;
   --ns-unknown: #6e7781;
   --ns-shadow: 0 8px 24px rgb(0 0 0 / 0.12);
+  --ns-code-keyword: #0550ae;
+  --ns-code-interface: #8250df;
+  --ns-code-address: #0a7f87;
+  --ns-code-number: #a04f00;
+  --ns-code-string: #4b5563;
 }
 
 body {

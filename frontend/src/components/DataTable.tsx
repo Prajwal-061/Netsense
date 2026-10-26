@@ -8,24 +8,24 @@ import { TableScroll, Td, Th } from './ui'
 export default function DataTable({ data }: { data: CollectedRow[] | string }) {
   if (typeof data === 'string') {
     return (
-      <div className="p-4">
-        <p className="mb-2 text-xs text-slate-500">
-          This output could not be parsed into a table, so the raw CLI text is shown.
-        </p>
-        <pre className="max-h-96 overflow-auto rounded-md bg-slate-950 p-4 font-mono text-xs text-slate-100">
+      <div className="p-3">
+        <pre
+          className="max-h-96 overflow-auto rounded border border-line bg-canvas p-3 font-mono text-xs text-fg"
+          title="This output could not be parsed into a table, so the raw CLI text is shown."
+        >
           {data}
         </pre>
       </div>
     )
   }
   if (data.length === 0) {
-    return <p className="px-4 py-8 text-center text-sm text-slate-500">No entries.</p>
+    return <p className="px-3 py-5 text-fg-muted">No entries.</p>
   }
 
   // Columns are whatever keys the rows have, in first-seen order.
   const columns = [...new Set(data.flatMap((row) => Object.keys(row)))]
   return (
-    <TableScroll>
+    <TableScroll maxHeight="max-h-[32rem]">
       <thead>
         <tr>
           {columns.map((column) => (
@@ -33,14 +33,14 @@ export default function DataTable({ data }: { data: CollectedRow[] | string }) {
           ))}
         </tr>
       </thead>
-      <tbody className="divide-y divide-slate-100">
+      <tbody>
         {data.map((row, index) => (
-          <tr key={index} className="hover:bg-slate-50">
+          <tr key={index}>
             {columns.map((column) => {
               const text = cellText(row[column])
               return (
-                <Td key={column} className={`font-mono text-xs ${stateColour(text)}`}>
-                  {text || <span className="text-slate-300">-</span>}
+                <Td key={column} className={`font-mono text-xs whitespace-nowrap ${stateColour(text)}`}>
+                  {text || <span className="text-fg-subtle">–</span>}
                 </Td>
               )
             })}
@@ -65,17 +65,17 @@ function stateColour(text: string): string {
     ['up', 'active', 'connected', 'fwd', 'trunking'].includes(value) ||
     value.startsWith('full')
   ) {
-    return 'font-semibold text-emerald-700'
+    return 'font-medium text-ok'
   }
   if (
     value.includes('down') ||
     value.includes('err-disabled') ||
     ['notconnect', 'blk', 'not-trunking', 'none'].includes(value)
   ) {
-    return 'font-semibold text-red-700'
+    return 'font-medium text-crit'
   }
   if (['lrn', 'lis', 'altn', 'back'].includes(value) || value.startsWith('init') || value.startsWith('exstart')) {
-    return 'font-semibold text-amber-700'
+    return 'font-medium text-warn'
   }
-  return 'text-slate-800'
+  return 'text-fg'
 }

@@ -1,18 +1,19 @@
 import type { Port } from '../api'
 
 /** Open ports as compact chips: "22/tcp ssh". */
-export function PortChips({ ports }: { ports: Port[] }) {
-  if (ports.length === 0) return <span className="text-slate-400">None</span>
+export function PortChips({ ports, wrap = true }: { ports: Port[]; wrap?: boolean }) {
+  if (ports.length === 0) return <span className="text-fg-subtle">None</span>
   return (
-    <span className="flex flex-wrap gap-1">
+    <span className={`flex gap-1 ${wrap ? 'flex-wrap' : ''}`}>
       {ports.map((port) => (
         <span
           key={`${port.port}/${port.protocol}`}
-          className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs whitespace-nowrap text-slate-700"
+          className="rounded-[2px] bg-raised px-1.5 font-mono text-[11.5px] leading-5 whitespace-nowrap text-fg"
           title={[port.product, port.version].filter(Boolean).join(' ') || undefined}
         >
-          {port.port}/{port.protocol}
-          {port.service && <span className="text-slate-500"> {port.service}</span>}
+          {port.port}
+          <span className="text-fg-subtle">/{port.protocol}</span>
+          {port.service && <span className="text-fg-muted"> {port.service}</span>}
         </span>
       ))}
     </span>

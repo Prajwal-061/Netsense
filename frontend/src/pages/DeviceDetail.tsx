@@ -1,24 +1,33 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
+import type { ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ApiError } from '../api'
-import type { CollectedKind, ConfigBackup, Device } from '../api'
+import type { CollectedKind, CollectedRow, ConfigBackup, Device } from '../api'
+import DiffView, { ConfigView } from '../components/CodeView'
 import DataTable from '../components/DataTable'
-import DiffView from '../components/DiffView'
+import Faceplate from '../components/Faceplate'
 import {
   Badge,
   Button,
   Card,
   EmptyState,
   ErrorBox,
+  FieldLabel,
+  KeyValueGrid,
   Loading,
+  MessageBar,
   PageTitle,
   PresenceBadge,
+  RelativeTime,
+  Select,
+  StatusDot,
   TableScroll,
   Td,
   Th,
   TypeBadge,
   VirtualBadge,
 } from '../components/ui'
+import { buildPanel } from '../faceplate'
 import { formatDateTime, timeAgo } from '../format'
 import {
   isPresent,
@@ -29,6 +38,7 @@ import {
   useConfigs,
   useDevice,
   useLatestCompletedScan,
+  useTopology,
 } from '../queries'
 
 // Types the API allows collecting from: a scan's guess, or confirmed by a login.
@@ -45,6 +55,8 @@ export default function DeviceDetail() {
 function DeviceView({ id }: { id: number }) {
   const device = useDevice(id)
   const latestScan = useLatestCompletedScan()
+  const topology = useTopology()
+  const collect = useCollect(id)
 
   if (device.isPending) return <Loading label="Loading device..." />
   if (device.isError) return <ErrorBox error={device.error} onRetry={() => void device.refetch()} />
@@ -52,97 +64,129 @@ function DeviceView({ id }: { id: number }) {
   const data = device.data
   const result = data.latest_result
   const ports = result?.open_ports ?? []
+  const node = topology.data?.nodes.find((item) => item.device_id === data.id)
+  const network = NETWORK_TYPES.includes(data.device_type)
 
   return (
     <>
-      <p className="mb-2 text-sm">
-        <Link to="/devices" className="text-blue-700 hover:underline">
+      <nav aria-label="Breadcrumb" className="mb-1 text-xs text-fg-muted">
+        <Link to="/devices" className="hover:text-accent">
           Devices
         </Link>
-        <span className="text-slate-400"> / </span>
-        {data.last_ip}
-      </p>
+        <span className="text-fg-subtle"> / </span>
+        <span className="font-mono">{data.last_ip}</span>
+      </nav>
       <PageTitle
         title={
-          <span className="flex flex-wrap items-center gap-3">
-            <span className="font-mono">{data.last_ip}</span>
-            <TypeBadge type={data.device_type} />
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            {node ? node.name : <span className="font-mono">{data.last_ip}</span>}
+            {node && <span className="font-mono text-[13px] font-normal text-fg-muted">{data.last_ip}</span>}
+            <span className="text-[13px] font-normal">
+              <TypeBadge type={data.device_type} />
+            </span>
             <VirtualBadge platform={data.virtualization} />
-            <PresenceBadge present={isPresent(data, latestScan?.id)} />
+            <span className="text-[13px] font-normal">
+              <PresenceBadge present={isPresent(data, latestScan?.id)} />
+            </span>
           </span>
         }
-        subtitle={data.vendor}
+        actions={
+          network && (
+            <Button
+              onClick={() => collect.mutate()}
+              busy={collect.isPending}
+              title="Logs in over SSH and runs read-only show commands. Nothing on the device is changed."
+            >
+              {collect.isPending ? 'Collecting...' : 'Collect from device'}
+            </Button>
+          )
+        }
       />
 
-      <div className="space-y-5">
-        <div className="grid gap-5 lg:grid-cols-2">
-          <Card title="Device">
-            <dl className="divide-y divide-slate-100 text-sm">
-              <Row label="IP address" value={<span className="font-mono">{data.last_ip}</span>} />
-              <Row label="MAC address" value={<span className="font-mono">{data.mac}</span>} />
-              <Row label="Vendor" value={data.vendor} />
-              <Row
-                label="Virtualization"
-                value={
+      {collect.isError && (
+        <div className="mb-3">
+          <ErrorBox error={collect.error} />
+        </div>
+      )}
+      {collect.isSuccess && (
+        <MessageBar tone={collect.data.config_changed ? 'warn' : 'ok'} className="mb-3">
+          Collected {Object.keys(collect.data.collected).length} kinds of data. Confirmed as a {collect.data.device_type}.{' '}
+          {collect.data.first_backup
+            ? "This is the device's first config backup."
+            : collect.data.config_changed
+              ? `The running config has changed since the last backup (${changeSize(collect.data.config_backup)}).`
+              : 'The running config is unchanged since the last backup.'}
+          {collect.data.note && <span className="ml-1 text-warn">{collect.data.note}</span>}
+        </MessageBar>
+      )}
+
+      <div className="space-y-3">
+        {network && <FrontPanel device={data} name={node?.name ?? data.last_ip} platform={node?.platform ?? null} />}
+
+        <div className="grid items-start gap-3 lg:grid-cols-3">
+          <Card title="Device" className="lg:col-span-2">
+            <KeyValueGrid
+              columns={2}
+              items={[
+                ['IP address', <span key="ip" className="font-mono">{data.last_ip}</span>],
+                ['MAC address', <span key="mac" className="font-mono">{data.mac}</span>],
+                ['Vendor', data.vendor],
+                [
+                  'Virtualization',
                   data.virtualization ? (
-                    <>
-                      <VirtualBadge platform={data.virtualization} />{' '}
-                      <span className="text-slate-500">from the MAC prefix</span>
-                    </>
+                    <span key="virtual" className="inline-flex flex-wrap items-center gap-2">
+                      <VirtualBadge platform={data.virtualization} />
+                      <span className="text-xs text-fg-muted">from the MAC prefix</span>
+                    </span>
                   ) : (
-                    <span className="text-slate-500">None detected from the MAC address</span>
-                  )
-                }
-              />
-              <Row label="First seen" value={formatDateTime(data.first_seen)} />
-              <Row
-                label="Last seen"
-                value={
-                  <>
-                    {formatDateTime(data.last_seen)}{' '}
-                    <span className="text-slate-500">({timeAgo(data.last_seen)})</span>
-                  </>
-                }
-              />
-              {result && (
-                <Row
-                  label="Last scan"
-                  value={
-                    <Link to={`/scans/${result.scan_id}`} className="text-blue-700 hover:underline">
-                      Scan #{result.scan_id}
-                    </Link>
-                  }
-                />
-              )}
-            </dl>
+                    <span key="virtual" className="text-fg-muted">None detected</span>
+                  ),
+                ],
+                ['First seen', <RelativeTime key="first" iso={data.first_seen} />],
+                ['Last seen', <RelativeTime key="last" iso={data.last_seen} />],
+                ...(node?.platform ? [['Platform', <span key="platform" className="font-mono text-xs">{node.platform}</span>] as [ReactNode, ReactNode]] : []),
+                ...(result
+                  ? [
+                      [
+                        'Last scan',
+                        <Link key="scan" to={`/scans/${result.scan_id}`} className="text-accent hover:underline">
+                          Scan #{result.scan_id}
+                        </Link>,
+                      ] as [ReactNode, ReactNode],
+                    ]
+                  : []),
+              ]}
+            />
           </Card>
 
           <Card title="Classification">
-            <div className="space-y-3 p-4 text-sm">
-              <p className="flex flex-wrap items-center gap-2">
+            <div className="space-y-2 px-3 py-2.5">
+              <p className="flex flex-wrap items-center gap-x-3 gap-y-1">
                 <TypeBadge type={data.device_type} />
                 {data.type_source === 'collected' ? (
-                  <Badge tone="green">confirmed by login</Badge>
+                  <StatusDot status="ok" title="The device reported this itself over an SSH login, so scans no longer change it.">
+                    <span className="text-fg-muted">confirmed by login</span>
+                  </StatusDot>
                 ) : (
-                  <Badge>guess from scan</Badge>
+                  <StatusDot
+                    status="unknown"
+                    title="A rule-based guess from service banners and open ports. Whether the device is virtual does not decide the type."
+                  >
+                    <span className="text-fg-muted">guess from scan</span>
+                  </StatusDot>
                 )}
               </p>
               <div>
-                <p className="text-xs font-medium tracking-wide text-slate-500 uppercase">Reason</p>
-                <p className="mt-1 text-slate-800">{data.type_reason || 'No scan result yet.'}</p>
+                <FieldLabel>Reason</FieldLabel>
+                <p className="mt-0.5 text-fg">{data.type_reason || 'No scan result yet.'}</p>
               </div>
-              <p className="text-xs text-slate-500">
-                {data.type_source === 'collected'
-                  ? "The device reported this itself over an SSH login, so scans no longer change it."
-                  : 'A rule-based guess from service banners and open ports. Whether the device is virtual is shown separately and does not decide the type.'}
-              </p>
             </div>
           </Card>
         </div>
 
-        <Card title={`Open ports (${ports.length})`}>
+        <Card title={<>Open ports <span className="tabular font-normal text-fg-muted">{ports.length}</span></>}>
           {ports.length === 0 ? (
-            <EmptyState>No open ports were found among the common ports scanned.</EmptyState>
+            <EmptyState>No open ports among the common ports scanned.</EmptyState>
           ) : (
             <TableScroll>
               <thead>
@@ -154,17 +198,17 @@ function DeviceView({ id }: { id: number }) {
                   <Th>Details</Th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody>
                 {ports.map((port) => (
-                  <tr key={`${port.port}/${port.protocol}`} className="hover:bg-slate-50">
-                    <Td className="font-mono font-medium whitespace-nowrap">
+                  <tr key={`${port.port}/${port.protocol}`}>
+                    <Td className="font-mono text-xs font-medium whitespace-nowrap">
                       {port.port}/{port.protocol}
                     </Td>
-                    <Td>{port.service || '-'}</Td>
-                    <Td>{port.product || '-'}</Td>
-                    <Td className="font-mono text-xs">{port.version || '-'}</Td>
-                    <Td className="text-xs text-slate-600">
-                      {[port.extra_info, port.os_type && `OS: ${port.os_type}`].filter(Boolean).join(' · ') || '-'}
+                    <Td>{port.service || '–'}</Td>
+                    <Td>{port.product || '–'}</Td>
+                    <Td className="font-mono text-xs">{port.version || '–'}</Td>
+                    <Td className="text-xs text-fg-muted">
+                      {[port.extra_info, port.os_type && `OS: ${port.os_type}`].filter(Boolean).join(' · ') || '–'}
                     </Td>
                   </tr>
                 ))}
@@ -173,18 +217,68 @@ function DeviceView({ id }: { id: number }) {
           )}
         </Card>
 
-        {NETWORK_TYPES.includes(data.device_type) && <Collected device={data} />}
+        {network && <Collected device={data} />}
       </div>
     </>
   )
 }
 
-function Row({ label, value }: { label: string; value: React.ReactNode }) {
+/** Rows of one kind of collected data, or undefined while unknown or never collected. */
+function useRows(id: number, kind: CollectedKind, wanted: boolean) {
+  const query = useCollected(id, kind, wanted)
+  return { rows: wanted && Array.isArray(query.data?.data) ? (query.data.data as CollectedRow[]) : undefined, query }
+}
+
+/** The faceplate, built from the interface, VLAN, trunk, CDP, MAC/ARP, STP and OSPF data. */
+function FrontPanel({ device, name, platform }: { device: Device; name: string; platform: string | null }) {
+  const isSwitch = device.device_type === 'switch'
+  const isRouter = device.device_type === 'router'
+  const interfaces = useRows(device.id, 'interfaces', true)
+  const vlans = useRows(device.id, 'vlans', isSwitch)
+  const trunks = useRows(device.id, 'trunks', isSwitch)
+  const macTable = useRows(device.id, 'mac-table', isSwitch)
+  const stp = useRows(device.id, 'spanning-tree', isSwitch)
+  const cdp = useRows(device.id, 'cdp-neighbors', true)
+  const arp = useRows(device.id, 'arp', !isSwitch)
+  const ospf = useRows(device.id, 'ospf-interfaces', isRouter)
+  const panel = useMemo(
+    () =>
+      interfaces.rows
+        ? buildPanel({
+            interfaces: interfaces.rows,
+            vlans: vlans.rows,
+            trunks: trunks.rows,
+            cdp: cdp.rows,
+            macTable: macTable.rows,
+            arp: arp.rows,
+            stp: stp.rows,
+            ospf: ospf.rows,
+          })
+        : null,
+    [interfaces.rows, vlans.rows, trunks.rows, cdp.rows, macTable.rows, arp.rows, stp.rows, ospf.rows],
+  )
+  const collectedAt = interfaces.query?.data?.collected_at
+  const neverCollected = interfaces.query?.error instanceof ApiError && interfaces.query.error.status === 404
+
   return (
-    <div className="flex flex-wrap justify-between gap-x-4 gap-y-0.5 px-4 py-2.5">
-      <dt className="text-slate-500">{label}</dt>
-      <dd className="text-right text-slate-900">{value}</dd>
-    </div>
+    <Card
+      title="Front panel"
+      action={collectedAt && <span className="text-xs text-fg-muted">Collected <RelativeTime iso={collectedAt} /></span>}
+    >
+      {interfaces.query?.isPending ? (
+        <Loading />
+      ) : neverCollected ? (
+        <EmptyState>No ports to draw yet: collect from the device first.</EmptyState>
+      ) : interfaces.query?.isError ? (
+        <div className="p-3">
+          <ErrorBox error={interfaces.query.error} onRetry={() => void interfaces.query?.refetch()} />
+        </div>
+      ) : panel && panel.ports.length > 0 ? (
+        <Faceplate panel={panel} name={name} platform={platform} />
+      ) : (
+        <EmptyState>The interface list has no physical ports.</EmptyState>
+      )}
+    </Card>
   )
 }
 
@@ -213,49 +307,16 @@ function tabsFor(deviceType: string): { id: Tab; label: string }[] {
   return [...COMMON_TABS, ...specific, { id: 'configs', label: 'Config backups' }]
 }
 
-/** Collect button and tabs. Only rendered for network devices. */
+/** Tabs of collected data and config backups. Only rendered for network devices. */
 function Collected({ device }: { device: Device }) {
   const [chosenTab, setTab] = useState<Tab>('interfaces')
-  const collect = useCollect(device.id)
   const tabs = tabsFor(device.device_type)
   // The tabs change when a collection confirms the device as a router or switch.
   const tab = tabs.some((item) => item.id === chosenTab) ? chosenTab : 'interfaces'
 
   return (
-    <Card
-      title="Collected from the device"
-      action={
-        <Button onClick={() => collect.mutate()} busy={collect.isPending}>
-          {collect.isPending ? 'Collecting...' : 'Collect from device'}
-        </Button>
-      }
-    >
-      <div className="space-y-3 px-4 pt-3">
-        <p className="text-xs text-slate-500">
-          Logs in over SSH and runs read-only show commands. Nothing on the device is changed.
-        </p>
-        {collect.isError && <ErrorBox error={collect.error} />}
-        {collect.isSuccess && (
-          <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900" role="status">
-            Collected {Object.keys(collect.data.collected).length} kinds of data. Confirmed as a{' '}
-            {collect.data.device_type}.{' '}
-            {collect.data.first_backup
-              ? "This is the device's first config backup."
-              : collect.data.config_changed
-                ? `The running config has changed since the last backup (${changeSize(collect.data.config_backup)}).`
-                : 'The running config is unchanged since the last backup.'}
-            {collect.data.note && <span className="mt-1 block text-amber-800">{collect.data.note}</span>}
-          </p>
-        )}
-        {device.device_type === 'network device' && !collect.isPending && (
-          <p className="text-xs text-slate-500">
-            Collect once to confirm whether this is a router or a switch. Routing and switching
-            tabs appear after that.
-          </p>
-        )}
-      </div>
-
-      <div className="mt-3 flex gap-1 overflow-x-auto border-b border-slate-200 px-3" role="tablist">
+    <Card>
+      <div className="flex gap-1 overflow-x-auto border-b border-line px-2" role="tablist" aria-label="Collected data">
         {tabs.map((item) => (
           <button
             key={item.id}
@@ -263,10 +324,8 @@ function Collected({ device }: { device: Device }) {
             role="tab"
             aria-selected={tab === item.id}
             onClick={() => setTab(item.id)}
-            className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium whitespace-nowrap ${
-              tab === item.id
-                ? 'border-blue-600 text-blue-700'
-                : 'border-transparent text-slate-600 hover:border-slate-300 hover:text-slate-900'
+            className={`-mb-px h-9 border-b-2 px-2.5 whitespace-nowrap transition-colors duration-150 ${
+              tab === item.id ? 'border-accent text-fg' : 'border-transparent text-fg-muted hover:text-fg'
             }`}
           >
             {item.label}
@@ -283,9 +342,7 @@ function Collected({ device }: { device: Device }) {
 
 function NothingCollected() {
   return (
-    <EmptyState>
-      Nothing has been collected from this device yet. Use "Collect from device" above.
-    </EmptyState>
+    <EmptyState>Nothing has been collected from this device yet. Use "Collect from device" above.</EmptyState>
   )
 }
 
@@ -298,17 +355,18 @@ function CollectedTab({ deviceId, kind }: { deviceId: number; kind: CollectedKin
     // from this kind of device"), not a failure.
     if (collected.error instanceof ApiError && collected.error.status === 404) return <NothingCollected />
     return (
-      <div className="p-4">
+      <div className="p-3">
         <ErrorBox error={collected.error} onRetry={() => void collected.refetch()} />
       </div>
     )
   }
   return (
     <>
-      <p className="px-4 pt-3 text-xs text-slate-500">
-        Collected {formatDateTime(collected.data.collected_at)} ({timeAgo(collected.data.collected_at)})
-      </p>
       <DataTable data={collected.data.data} />
+      <p className="border-t border-line px-3 py-1.5 text-xs text-fg-subtle">
+        Collected <RelativeTime iso={collected.data.collected_at} />
+        {Array.isArray(collected.data.data) && <span className="tabular"> · {collected.data.data.length} rows</span>}
+      </p>
     </>
   )
 }
@@ -328,7 +386,7 @@ function ConfigsTab({ deviceId }: { deviceId: number }) {
   if (configs.isPending) return <Loading />
   if (configs.isError) {
     return (
-      <div className="p-4">
+      <div className="p-3">
         <ErrorBox error={configs.error} onRetry={() => void configs.refetch()} />
       </div>
     )
@@ -344,29 +402,31 @@ function ConfigsTab({ deviceId }: { deviceId: number }) {
   const toId = chosenTo ?? latest.id
 
   return (
-    <div className="space-y-4 p-4">
+    <div className="space-y-3 p-3">
       {latest.changed && (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-          <Badge tone="amber">Config changed since last backup</Badge>
-          <span>
-            {changeSize(latest)}, collected {formatDateTime(latest.collected_at)}.
-          </span>
-          <button
-            type="button"
-            className="font-medium text-blue-700 hover:underline"
-            onClick={() => {
-              setChosenFrom(backups[1].id)
-              setChosenTo(latest.id)
-              setMode('compare')
-            }}
-          >
-            Show what changed
-          </button>
-        </div>
+        <MessageBar
+          tone="warn"
+          title="Config changed since last backup"
+          action={
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                setChosenFrom(backups[1].id)
+                setChosenTo(latest.id)
+                setMode('compare')
+              }}
+            >
+              Show what changed
+            </Button>
+          }
+        >
+          {changeSize(latest)}, collected {formatDateTime(latest.collected_at)}.
+        </MessageBar>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-[18rem_1fr]">
-        <ul className="space-y-2" aria-label="Config backups">
+      <div className="grid gap-3 lg:grid-cols-[16rem_1fr]">
+        <ul className="divide-y divide-line self-start overflow-hidden rounded border border-line" aria-label="Config backups">
           {backups.map((backup, index) => (
             <li key={backup.id}>
               <button
@@ -376,15 +436,13 @@ function ConfigsTab({ deviceId }: { deviceId: number }) {
                   setMode('view')
                 }}
                 aria-pressed={mode === 'view' && backup.id === selected}
-                className={`w-full rounded-md border px-3 py-2 text-left text-sm ${
-                  mode === 'view' && backup.id === selected
-                    ? 'border-blue-500 bg-blue-50'
-                    : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+                className={`w-full border-l-2 px-3 py-2 text-left transition-colors duration-150 ${
+                  mode === 'view' && backup.id === selected ? 'border-l-accent bg-raised' : 'border-l-transparent hover:bg-raised'
                 }`}
               >
-                <span className="flex items-center justify-between gap-2 font-medium text-slate-900">
+                <span className="flex items-center justify-between gap-2 text-fg">
                   {formatDateTime(backup.collected_at)}
-                  {index === 0 && <span className="text-xs font-normal text-emerald-700">current</span>}
+                  {index === 0 && <span className="text-xs text-ok">current</span>}
                 </span>
                 <span className="mt-1 flex flex-wrap items-center gap-2">
                   {/* Only say what the API actually reported. A missing value
@@ -392,9 +450,9 @@ function ConfigsTab({ deviceId }: { deviceId: number }) {
                   {backup.changed === null && <Badge>first backup</Badge>}
                   {backup.changed === true && <Badge tone="amber">changed {changeSize(backup)}</Badge>}
                   {backup.changed === false && <Badge>no change</Badge>}
-                  <span className="text-xs text-slate-500">#{backup.id}</span>
+                  <span className="font-mono text-xs text-fg-subtle">#{backup.id}</span>
                 </span>
-                <span className="mt-1 block text-xs text-slate-500">
+                <span className="mt-1 block text-xs text-fg-muted">
                   {backup.lines} lines · unchanged as of {timeAgo(backup.last_seen_at)}
                 </span>
               </button>
@@ -403,15 +461,15 @@ function ConfigsTab({ deviceId }: { deviceId: number }) {
         </ul>
 
         <div className="min-w-0">
-          <div className="mb-3 inline-flex rounded-md border border-slate-300 p-0.5 text-sm" role="group" aria-label="Config view">
+          <div className="mb-2 inline-flex rounded border border-line-strong p-px" role="group" aria-label="Config view">
             {(['view', 'compare'] as const).map((item) => (
               <button
                 key={item}
                 type="button"
                 aria-pressed={mode === item}
                 onClick={() => setMode(item)}
-                className={`rounded px-3 py-1 font-medium ${
-                  mode === item ? 'bg-slate-800 text-white' : 'text-slate-600 hover:text-slate-900'
+                className={`rounded-[3px] px-2.5 leading-6 transition-colors duration-150 ${
+                  mode === item ? 'bg-raised text-fg' : 'text-fg-muted hover:text-fg'
                 }`}
               >
                 {item === 'view' ? 'View config' : 'Compare backups'}
@@ -422,13 +480,13 @@ function ConfigsTab({ deviceId }: { deviceId: number }) {
           {mode === 'view' ? (
             <ConfigText deviceId={deviceId} backupId={selected} />
           ) : backups.length < 2 ? (
-            <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-6 text-center text-sm text-slate-600">
-              There is only one backup so far. A second one is stored when a collection finds
-              that the config has changed, and then the two can be compared.
+            <p className="rounded border border-line px-3 py-5 text-fg-muted">
+              There is only one backup so far. A second one is stored when a collection finds that the config has
+              changed.
             </p>
           ) : (
             <>
-              <div className="mb-3 flex flex-wrap items-end gap-3">
+              <div className="mb-2 flex flex-wrap items-center gap-3">
                 <BackupSelect label="From (older)" backups={backups} value={fromId!} onChange={setChosenFrom} />
                 <BackupSelect label="To (newer)" backups={backups} value={toId} onChange={setChosenTo} />
               </div>
@@ -453,19 +511,15 @@ function BackupSelect({
   onChange: (id: number) => void
 }) {
   return (
-    <label className="text-xs font-medium text-slate-600">
-      {label}
-      <select
-        value={value}
-        onChange={(event) => onChange(Number(event.target.value))}
-        className="mt-1 block rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
-      >
+    <label className="flex items-center gap-2">
+      <FieldLabel>{label}</FieldLabel>
+      <Select value={value} onChange={(event) => onChange(Number(event.target.value))}>
         {backups.map((backup) => (
           <option key={backup.id} value={backup.id}>
             #{backup.id} · {formatDateTime(backup.collected_at)}
           </option>
         ))}
-      </select>
+      </Select>
     </label>
   )
 }
@@ -475,17 +529,7 @@ function ConfigText({ deviceId, backupId }: { deviceId: number; backupId: number
 
   if (config.isPending) return <Loading label="Loading config..." />
   if (config.isError) return <ErrorBox error={config.error} onRetry={() => void config.refetch()} />
-  return (
-    <>
-      <p className="mb-2 text-xs text-slate-500">
-        Passwords, SNMP communities and keys are masked by the API before the config is sent to
-        the browser.
-      </p>
-      <pre className="max-h-[32rem] overflow-auto rounded-md bg-slate-950 p-4 font-mono text-xs leading-relaxed text-slate-100">
-        {config.data.config}
-      </pre>
-    </>
-  )
+  return <ConfigView text={config.data.config} label="Running config" />
 }
 
 function ConfigComparison({ deviceId, fromId, toId }: { deviceId: number; fromId: number; toId: number }) {
@@ -498,7 +542,7 @@ function ConfigComparison({ deviceId, fromId, toId }: { deviceId: number; fromId
   const data = comparison.data
   if (!data.changed) {
     return (
-      <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-6 text-center text-sm text-slate-600">
+      <p className="rounded border border-line px-3 py-5 text-fg-muted">
         {fromId === toId
           ? 'The same backup is selected on both sides.'
           : 'These two backups have the same configuration. Timestamp lines are ignored.'}
@@ -507,12 +551,9 @@ function ConfigComparison({ deviceId, fromId, toId }: { deviceId: number; fromId
   }
   return (
     <>
-      <p className="mb-2 flex flex-wrap items-center gap-2 text-sm">
-        <Badge tone="green">+{data.lines_added} added</Badge>
-        <Badge tone="red">-{data.lines_removed} removed</Badge>
-        <span className="text-xs text-slate-500">
-          Timestamp lines are ignored and secrets are masked.
-        </span>
+      <p className="mb-2 flex flex-wrap items-center gap-3 text-xs" title="Timestamp lines are ignored and secrets are masked.">
+        <span className="tabular font-mono text-ok">+{data.lines_added} added</span>
+        <span className="tabular font-mono text-crit">-{data.lines_removed} removed</span>
       </p>
       <DiffView diff={data.diff} />
     </>

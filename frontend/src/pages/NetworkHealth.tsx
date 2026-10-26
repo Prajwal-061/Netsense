@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ApiError } from '../api'
 import type { DriftCheck, DriftFinding, DriftReport } from '../api'
-import DiffView from '../components/DiffView'
+import DiffView from '../components/CodeView'
 import {
   Badge,
   Button,

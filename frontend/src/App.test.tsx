@@ -42,6 +42,16 @@ function open(path: string) {
   return userEvent.setup()
 }
 
+/** The lines of every code-view table with this name, as "+text", "-text", " text" (diffs) or "text". */
+function codeLines(name: string, scope: HTMLElement = document.body) {
+  const sign: Record<string, string> = { add: '+', del: '-', ctx: ' ' }
+  return within(scope)
+    .getAllByRole('table', { name })
+    .flatMap((table) => within(table).getAllByRole('row'))
+    .filter((row) => (row as HTMLTableRowElement).cells.length > 1)
+    .map((row) => (row.dataset.kind ? sign[row.dataset.kind] : '') + row.lastElementChild!.textContent)
+}
+
 /** The card (section) with the given heading. */
 async function card(title: string) {
   const heading = await screen.findByRole('heading', { name: title })
@@ -178,7 +188,7 @@ test('devices table shows virtualization as its own badge next to the type', asy
   // The IOSv router: a network device that happens to run on QEMU/KVM.
   const router = (await screen.findByRole('link', { name: '192.168.17.3' })).closest('tr')!
   expect(within(router).getByText('network device')).toBeInTheDocument()
-  expect(within(router).getByText('QEMU/KVM', { selector: 'span[title]' })).toHaveAttribute(
+  expect(within(router).getByText('QEMU/KVM', { selector: 'span[title^="Virtual"]' })).toHaveAttribute(
     'title',
     'Virtual: the MAC address prefix belongs to QEMU/KVM',
   )
@@ -244,7 +254,7 @@ test('router tabs show OSPF neighbours and the routing table from the API', asyn
 
   await user.click(await screen.findByRole('tab', { name: 'OSPF neighbors' }))
   expect(await screen.findByRole('cell', { name: '2.2.2.2' })).toBeInTheDocument()
-  expect(screen.getByRole('cell', { name: 'FULL/DR' })).toHaveClass('text-emerald-700')
+  expect(screen.getByRole('cell', { name: 'FULL/DR' })).toHaveClass('text-ok')
 
   await user.click(screen.getByRole('tab', { name: 'Routing table' }))
   expect(await screen.findByRole('cell', { name: '10.2.1.1' })).toBeInTheDocument()
@@ -278,10 +288,52 @@ test('switch tabs show trunks and spanning tree, with blocked ports in red', asy
   expect(tabs).toEqual(['Interfaces', 'CDP neighbors', 'ARP', 'VLANs', 'Trunks', 'Spanning tree', 'MAC table', 'Config backups'])
 
   await user.click(screen.getByRole('tab', { name: 'Trunks' }))
-  expect(await screen.findByRole('cell', { name: 'none' })).toHaveClass('text-red-700')
+  expect(await screen.findByRole('cell', { name: 'none' })).toHaveClass('text-crit')
   await user.click(screen.getByRole('tab', { name: 'Spanning tree' }))
-  expect(await screen.findByRole('cell', { name: 'BLK' })).toHaveClass('text-red-700')
-  expect(screen.getByRole('cell', { name: 'FWD' })).toHaveClass('text-emerald-700')
+  expect(await screen.findByRole('cell', { name: 'BLK' })).toHaveClass('text-crit')
+  expect(screen.getByRole('cell', { name: 'FWD' })).toHaveClass('text-ok')
+})
+
+test('a switch page starts with its front panel: state, VLAN or T per port, details on hover', async () => {
+  const at = '2026-10-08T07:30:00Z'
+  installFakeApi({
+    'GET /devices/2': { ...SWITCH_DEVICE, device_type: 'switch', type_source: 'collected' },
+    'GET /devices/2/interfaces': {
+      device_id: 2,
+      collected_at: at,
+      data: [
+        { interface: 'Ethernet0/0', ip_address: 'unassigned', status: 'up', proto: 'up' },
+        { interface: 'Ethernet0/1', ip_address: 'unassigned', status: 'up', proto: 'up' },
+        { interface: 'Ethernet0/2', ip_address: 'unassigned', status: 'administratively down', proto: 'down' },
+        { interface: 'Vlan10', ip_address: '192.168.17.10', status: 'up', proto: 'up' },
+      ],
+    },
+    'GET /devices/2/vlans': { device_id: 2, collected_at: at, data: [{ vlan_id: '10', vlan_name: 'MGMT', interfaces: ['Et0/0'] }] },
+    'GET /devices/2/trunks': { device_id: 2, collected_at: at, data: [{ interface: 'Et0/1', allowed_vlans: '20,30' }] },
+    'GET /devices/2/cdp-neighbors': { device_id: 2, collected_at: at, data: [{ neighbor_name: 'R1', neighbor_interface: 'GigabitEthernet0/1', local_interface: 'Ethernet0/1' }] },
+    'GET /devices/2/spanning-tree': { device_id: 2, collected_at: at, data: [{ vlan_id: '20', interface: 'Et0/1', role: 'Desg', status: 'FWD' }] },
+    'GET /devices/2/mac-table': { device_id: 2, collected_at: at, data: [{ destination_address: 'aabb.cc00.0120', vlan_id: '20', destination_port: ['Et0/1'] }] },
+  })
+  const user = open('/devices/2')
+
+  const panel = within(await screen.findByRole('group', { name: /front panel/ }))
+  const ports = await panel.findAllByRole('button')
+  expect(ports.map((port) => [port.dataset.port, port.dataset.state, port.textContent])).toEqual([
+    ['Et0/0', 'up', '100/0'],
+    ['Et0/1', 'up', 'T0/1'],
+    ['Et0/2', 'admin-down', '0/2'],
+  ])
+  expect(screen.getByText('Vl10')).toBeInTheDocument()
+
+  await user.hover(ports[1])
+  const card = within(await screen.findByRole('tooltip'))
+  expect(card.getByText('Ethernet0/1')).toBeInTheDocument()
+  expect(card.getByText('VLANs 20, 30')).toBeInTheDocument()
+  expect(card.getByText('R1 Gi0/1')).toBeInTheDocument()
+  expect(card.getByText('1')).toBeInTheDocument() // MACs
+  expect(card.getByText('VLAN 20 Desg FWD')).toBeInTheDocument()
+  // The table is still there, below.
+  expect(screen.getByRole('cell', { name: 'Ethernet0/1' })).toBeInTheDocument()
 })
 
 // --- Collections -----------------------------------------------------------
@@ -367,13 +419,13 @@ test('network device: collect, then interfaces and the config backup are shown',
 
   expect(await screen.findByText(/Collected 8 kinds of data\. Confirmed as a switch\./)).toBeInTheDocument()
   expect(await screen.findByRole('cell', { name: 'Ethernet0/1' })).toBeInTheDocument()
-  expect(screen.getByRole('cell', { name: 'administratively down' })).toHaveClass('text-red-700')
-  expect(screen.getAllByRole('cell', { name: 'up' })[0]).toHaveClass('text-emerald-700')
+  expect(screen.getByRole('cell', { name: 'administratively down' })).toHaveClass('text-crit')
+  expect(screen.getAllByRole('cell', { name: 'up' })[0]).toHaveClass('text-ok')
 
   expect(screen.getByText(/first config backup/)).toBeInTheDocument()
 
   await user.click(screen.getByRole('tab', { name: 'Config backups' }))
-  expect(await screen.findByText(/enable secret <redacted>/)).toBeInTheDocument()
+  await waitFor(() => expect(codeLines('Running config')).toEqual(['hostname SW1', 'enable secret <redacted>', 'end']))
   expect(screen.getByText(/3 lines/)).toBeInTheDocument()
   // One backup: marked as the first, no "changed" badge, nothing to compare.
   expect(screen.getByText('first backup')).toBeInTheDocument()
@@ -401,10 +453,21 @@ test('config tab marks changed backups and shows a coloured diff of two backups'
 
   // "Show what changed" compares the previous backup with the newest.
   await user.click(screen.getByRole('button', { name: 'Show what changed' }))
-  expect(await screen.findByText('+vlan 20')).toHaveClass('text-emerald-300')
-  expect(screen.getByText('+ switchport access vlan 20')).toHaveClass('text-emerald-300')
-  expect(screen.getByText('- switchport access vlan 10')).toHaveClass('text-red-300')
-  expect(screen.getByText(/switchport mode access/)).not.toHaveClass('text-emerald-300', 'text-red-300')
+  await waitFor(() => expect(codeLines('Config diff')).toContain('+vlan 20'))
+  const lines = codeLines('Config diff')
+  expect(lines).toContain('+ switchport access vlan 20')
+  expect(lines).toContain('- switchport access vlan 10')
+  expect(lines).toContain('  switchport mode access')
+  // Added and removed rows are tinted; context is not.
+  const rows = within(screen.getByRole('table', { name: 'Config diff' })).getAllByRole('row')
+  expect(rows.find((row) => row.dataset.kind === 'add')).toHaveClass('bg-ok-soft')
+  expect(rows.find((row) => row.dataset.kind === 'del')).toHaveClass('bg-crit-soft')
+  // Side by side: the removed line faces the line that replaced it.
+  await user.click(screen.getByRole('button', { name: 'Side by side' }))
+  const pair = within(screen.getByRole('table', { name: 'Config diff' }))
+    .getAllByRole('row')
+    .find((row) => row.textContent?.includes('switchport access vlan 10'))!
+  expect(pair).toHaveTextContent(/switchport access vlan 10.*switchport access vlan 20/)
   expect(screen.getByText('+4 added')).toBeInTheDocument()
   expect(screen.getByText('-1 removed')).toBeInTheDocument()
   expect(screen.getByLabelText('From (older)')).toHaveValue('1')
@@ -417,8 +480,8 @@ test('config tab marks changed backups and shows a coloured diff of two backups'
 
   // Clicking a backup in the list goes back to viewing its text.
   await user.click(list.getByText('changed +4 / -1 lines'))
-  expect(await screen.findByText(/vlan 20/)).toBeInTheDocument()
-  expect(screen.queryByText('+vlan 20')).not.toBeInTheDocument()
+  await waitFor(() => expect(codeLines('Running config')).toContain('vlan 20'))
+  expect(screen.queryByRole('table', { name: 'Config diff' })).not.toBeInTheDocument()
 })
 
 test('the compare request carries the two chosen backup ids as numbers', async () => {
@@ -436,7 +499,7 @@ test('the compare request carries the two chosen backup ids as numbers', async (
   await user.click(await screen.findByRole('button', { name: 'Compare backups' }))
 
   // Default: the previous backup (#2) against the newest (#3).
-  expect(await screen.findByText('+vlan 20')).toBeInTheDocument()
+  await waitFor(() => expect(codeLines('Config diff')).toContain('+vlan 20'))
   await user.selectOptions(screen.getByLabelText('From (older)'), '1')
   await waitFor(() => expect(api.calls).toContain('GET /devices/2/configs/diff?from_id=1&to_id=3'))
 
@@ -716,10 +779,10 @@ test('network health: a drift check runs, then shows causes, findings by device 
   const sw2 = within(screen.getByRole('link', { name: 'SW2' }).closest('section')!)
   const change = sw2.getByText("SW2 configuration added 'spanning-tree vlan 20 priority 0'.", { selector: 'p' }).closest('li')!
   await user.click(within(change).getByText('Show the configuration change'))
-  expect(within(change).getByText('+spanning-tree vlan 20 priority 0')).toHaveClass('text-emerald-300')
+  expect(codeLines('Config diff', change)).toContain('+spanning-tree vlan 20 priority 0')
   const full = sw2.getByText('Full configuration diff for SW2')
   await user.click(full)
-  expect(within(full.closest('details')!).getByText('- switchport access vlan 20')).toHaveClass('text-red-300')
+  expect(codeLines('Config diff', full.closest('details')!)).toContain('- switchport access vlan 20')
 
   // The map of the checked collection, with the changed devices outlined.
   const map = within(screen.getByTestId('topology-map'))
