@@ -101,7 +101,7 @@ class ChangeReport(BaseModel):
 
 class ScanSummary(BaseModel):
     id: int
-    status: str = Field(description="running, completed or failed")
+    status: str = Field(description="running, completed, failed or interrupted")
     subnet: str
     started_at: UTCDatetime
     finished_at: UTCDatetime | None
@@ -111,7 +111,7 @@ class ScanSummary(BaseModel):
 
 class ScanProgress(BaseModel):
     scan_id: int
-    status: str = Field(description="running, completed or failed")
+    status: str = Field(description="running, completed, failed or interrupted")
     step: str | None = Field(
         description="discovery (ARP), services (Nmap) or saving (classify and save). "
         "Null when the scan is not running, or runs in another process (a script)."

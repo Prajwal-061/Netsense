@@ -61,6 +61,11 @@ export default function ScanDetail() {
             {data.error}
           </MessageBar>
         )}
+        {data.status === 'interrupted' && (
+          <MessageBar tone="warn" title="This scan was interrupted before it finished, so its results are not used.">
+            {data.error}
+          </MessageBar>
+        )}
 
         {data.changes && (
           <Card title="Changes">

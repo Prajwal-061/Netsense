@@ -5,11 +5,12 @@ database, and the models know nothing about networking. This layer is the
 only place the two meet.
 """
 
+import os
 import threading
 from dataclasses import dataclass, field
 from ipaddress import IPv4Network
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.db.models import Device, Scan, ScanResult, utcnow
@@ -41,6 +42,13 @@ def scan_progress(scan_id: int) -> dict | None:
     with _progress_lock:
         entry = _progress.get(scan_id)
         return dict(entry) if entry else None
+
+
+INTERRUPTED_MESSAGE = "Interrupted: the program stopped before the scan finished."
+
+
+class ScanInterruptedError(Exception):
+    """The scan was marked interrupted while it was still running; nothing was saved."""
 
 
 class ScanInProgressError(Exception):
@@ -185,7 +193,7 @@ def start_scan(
             )
         # Committed before any packet is sent, so an interrupted scan still
         # leaves a record of when it started.
-        scan = Scan(subnet=str(network), status=Scan.STATUS_RUNNING)
+        scan = Scan(subnet=str(network), status=Scan.STATUS_RUNNING, pid=os.getpid())
         session.add(scan)
         session.commit()
     return scan, interface
@@ -213,22 +221,31 @@ def execute_scan(
         )
         _set_step(scan.id, "saving", len(devices))
         save_results(session, scan, classifier.classify_all(devices, scans))
-        scan.status = Scan.STATUS_COMPLETED
-        scan.finished_at = utcnow()
+        if not _finish(session, scan, Scan.STATUS_COMPLETED):
+            # Marked interrupted meanwhile: that stays, and so does "all or nothing".
+            session.rollback()
+            raise ScanInterruptedError(
+                f"Scan #{scan.id} was marked interrupted before it finished; its results were not saved."
+            )
         # One commit for all results: a scan is saved completely or not at all.
         session.commit()
+    except ScanInterruptedError:
+        raise
     except BaseException as exc:
-        # BaseException so that Ctrl-C also marks the scan failed instead of
-        # leaving it "running" forever and blocking every later scan.
+        # BaseException so that Ctrl-C also ends the scan instead of leaving
+        # it "running" forever and blocking every later scan.
         session.rollback()
-        scan.status = Scan.STATUS_FAILED
-        scan.finished_at = utcnow()
-        scan.error = str(exc) or type(exc).__name__
+        if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+            _finish(session, scan, Scan.STATUS_INTERRUPTED, INTERRUPTED_MESSAGE)
+        else:
+            _finish(session, scan, Scan.STATUS_FAILED, str(exc) or type(exc).__name__)
         session.commit()
         raise
     finally:
         with _progress_lock:
             _progress.pop(scan.id, None)
+        # The final status was written with a plain UPDATE: reload it on next access.
+        session.expire(scan)
 
     return compare_scans(scan, previous_scan(session, scan))
 
@@ -246,16 +263,45 @@ def run_scan(
     return scan, execute_scan(session, scan, interface, top_ports, host_timeout, allowed)
 
 
-def fail_interrupted_scans(session: Session) -> int:
-    """Mark scans still "running" as failed and return how many there were.
+def _finish(session: Session, scan: Scan, status: str, error: str | None = None) -> bool:
+    """Move a running scan to its final status, in the current transaction.
 
-    For program start-up only: a scan cannot survive a restart, so any that
-    is still "running" at that point was cut off by a crash or power loss.
+    Only a scan that is still "running" changes, checked and changed in one
+    UPDATE, so a scan another process has marked interrupted is never turned
+    into "completed" (or "failed") afterwards. Returns whether it changed.
     """
-    interrupted = session.scalars(select(Scan).where(Scan.status == Scan.STATUS_RUNNING)).all()
+    values = {"status": status, "finished_at": utcnow()}
+    if error is not None:
+        values["error"] = error
+    result = session.execute(
+        update(Scan)
+        .where(Scan.id == scan.id, Scan.status == Scan.STATUS_RUNNING)
+        .values(**values)
+        .execution_options(synchronize_session=False)
+    )
+    return result.rowcount == 1
+
+
+def _process_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)  # signal 0: only checks that the process exists
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # exists, but belongs to another user
+    return True
+
+
+def mark_interrupted_scans(session: Session) -> int:
+    """Mark "running" scans whose process is gone as interrupted; return how many.
+
+    For program start-up. A scan whose process still runs (a scan script, or
+    the old API process while --reload replaces it) is left alone: it will
+    finish by itself. Scans from before the pid was recorded count as gone.
+    """
+    running = session.scalars(select(Scan).where(Scan.status == Scan.STATUS_RUNNING)).all()
+    interrupted = [scan for scan in running if scan.pid is None or not _process_alive(scan.pid)]
     for scan in interrupted:
-        scan.status = Scan.STATUS_FAILED
-        scan.finished_at = utcnow()
-        scan.error = "Interrupted: the program stopped before the scan finished."
+        _finish(session, scan, Scan.STATUS_INTERRUPTED, INTERRUPTED_MESSAGE)
     session.commit()
     return len(interrupted)

@@ -114,7 +114,7 @@ export function useScanProgress(id: number | undefined) {
     queryKey: ['scans', id, 'progress'],
     queryFn: () => api.getScanProgress(id!),
     enabled: id !== undefined,
-    refetchInterval: (query) => (query.state.data?.status === 'completed' || query.state.data?.status === 'failed' ? false : 1_000),
+    refetchInterval: (query) => (query.state.data && query.state.data.status !== 'running' ? false : 1_000),
   })
 }
 

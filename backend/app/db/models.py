@@ -12,6 +12,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Integer,
     String,
     Text,
     TypeDecorator,
@@ -57,6 +58,9 @@ class Scan(Base):
     STATUS_RUNNING = "running"
     STATUS_COMPLETED = "completed"
     STATUS_FAILED = "failed"
+    # Cut off before it finished (restart, crash, Ctrl-C): no results kept.
+    # Never becomes "completed" afterwards.
+    STATUS_INTERRUPTED = "interrupted"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     started_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
@@ -64,6 +68,9 @@ class Scan(Base):
     subnet: Mapped[str] = mapped_column(String(18), index=True)
     status: Mapped[str] = mapped_column(String(16), default=STATUS_RUNNING)
     error: Mapped[str | None] = mapped_column(Text)
+    # Process running the scan (the API or a script), so start-up only marks
+    # scans interrupted whose process is gone. Null for scans from before 0009.
+    pid: Mapped[int | None] = mapped_column(Integer)
 
     results: Mapped[list["ScanResult"]] = relationship(
         back_populates="scan", cascade="all, delete-orphan", order_by="ScanResult.id"

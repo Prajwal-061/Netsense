@@ -364,7 +364,7 @@ function Timeline({
   const events: Event[] = [
     ...(scans ?? []).map((scan) => ({
       at: scan.started_at,
-      status: (scan.status === 'completed' ? 'ok' : scan.status === 'failed' ? 'crit' : 'accent') as Status,
+      status: (scan.status === 'completed' ? 'ok' : scan.status === 'failed' ? 'crit' : scan.status === 'interrupted' ? 'warn' : 'accent') as Status,
       kind: 'Scan',
       text:
         scan.status === 'completed' ? (
@@ -373,6 +373,8 @@ function Timeline({
           </>
         ) : scan.status === 'failed' ? (
           <>Scan #{scan.id} failed</>
+        ) : scan.status === 'interrupted' ? (
+          <>Scan #{scan.id} interrupted</>
         ) : (
           <>Scan #{scan.id} running</>
         ),

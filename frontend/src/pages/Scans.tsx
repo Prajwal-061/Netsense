@@ -53,7 +53,9 @@ export default function Scans() {
                   <Td>
                     <ScanStatusBadge status={scan.status} />
                     {scan.error && (
-                      <p className="mt-1 max-w-md text-[12px] break-words text-crit-fg">{scan.error}</p>
+                      <p className={`mt-1 max-w-md text-[12px] break-words ${scan.status === 'interrupted' ? 'text-warn-fg' : 'text-crit-fg'}`}>
+                        {scan.error}
+                      </p>
                     )}
                   </Td>
                   <Td className="whitespace-nowrap">

@@ -77,7 +77,8 @@ export interface ChangeReport {
   ip_changes: IpChange[]
 }
 
-export type ScanStatus = 'running' | 'completed' | 'failed'
+/** interrupted: cut off by a restart, crash or Ctrl-C before it finished. */
+export type ScanStatus = 'running' | 'completed' | 'failed' | 'interrupted'
 
 export interface ScanSummary {
   id: number

@@ -117,6 +117,7 @@ def main() -> int:
         discovery.DiscoveryError,
         scanner.ScannerError,
         scan_service.ScanInProgressError,
+        scan_service.ScanInterruptedError,
         ValueError,
     ) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

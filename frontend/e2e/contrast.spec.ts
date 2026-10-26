@@ -40,6 +40,7 @@ const PAGES: PageCase[] = [
   { name: 'scans', path: '/scans' },
   { name: 'scan-detail', path: '/scans/3' },
   { name: 'scan-failed', path: '/scans/5' },
+  { name: 'scan-interrupted', path: '/scans/4' },
   { name: 'collections', path: '/collections' },
   { name: 'network-health', path: '/network-health' },
   {

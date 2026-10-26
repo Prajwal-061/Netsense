@@ -43,11 +43,11 @@ async def lifespan(app: FastAPI):
     # A scan cannot outlive the process that ran it, so anything still
     # "running" now was cut off, and would block every new scan.
     with Session(engine) as session:
-        interrupted = scan_service.fail_interrupted_scans(session)
+        interrupted = scan_service.mark_interrupted_scans(session)
         interrupted += collection_service.fail_interrupted_collections(session)
         interrupted += drift_service.fail_interrupted_drift_checks(session)
     if interrupted:
-        logger.warning("Marked %s interrupted scan(s) or collection(s) as failed.", interrupted)
+        logger.warning("Marked %s interrupted scan(s), collection(s) or drift check(s).", interrupted)
     yield
 
 

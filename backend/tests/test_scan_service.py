@@ -1,5 +1,7 @@
 """Scan service tests: fake engine results, a real (in-memory) database."""
 
+import os
+import subprocess
 from contextlib import contextmanager
 from ipaddress import IPv4Network
 from unittest.mock import patch
@@ -230,29 +232,97 @@ def test_a_scan_cannot_start_while_another_is_running(session):
     assert len(session.scalars(select(Scan)).all()) == 1
 
 
-def test_interrupting_a_scan_marks_it_failed_instead_of_leaving_it_running(session):
+def test_interrupting_a_scan_marks_it_interrupted_instead_of_leaving_it_running(session):
     with patch.object(discovery, "arp_scan", side_effect=KeyboardInterrupt):
         with pytest.raises(KeyboardInterrupt):
             scan_service.run_scan(session, SUBNET, "ens256", allowed=ALLOWED)
 
     scan = session.scalars(select(Scan)).one()
-    assert scan.status == Scan.STATUS_FAILED
-    assert scan.error == "KeyboardInterrupt"
+    assert scan.status == Scan.STATUS_INTERRUPTED
+    assert scan.error == scan_service.INTERRUPTED_MESSAGE
+    assert scan.finished_at is not None
     # So the next scan is not blocked.
     assert run(session, SWITCH)[0].status == Scan.STATUS_COMPLETED
 
 
-def test_scans_left_running_by_a_crash_are_failed_at_startup(session):
+def dead_pid() -> int:
+    """The pid of a process that has already exited."""
+    child = subprocess.Popen(["true"])
+    child.wait()
+    return child.pid
+
+
+def test_scans_whose_process_is_gone_are_marked_interrupted_at_startup(session):
     finished, _ = run(session, SWITCH)
-    session.add(Scan(subnet=SUBNET, status=Scan.STATUS_RUNNING))
+    session.add(Scan(subnet=SUBNET, status=Scan.STATUS_RUNNING, pid=dead_pid()))
+    session.add(Scan(subnet=SUBNET, status=Scan.STATUS_RUNNING, pid=None))  # from before 0009
     session.commit()
 
-    assert scan_service.fail_interrupted_scans(session) == 1
+    assert scan_service.mark_interrupted_scans(session) == 2
 
-    statuses = [scan.status for scan in session.scalars(select(Scan).order_by(Scan.id))]
-    assert statuses == [Scan.STATUS_COMPLETED, Scan.STATUS_FAILED]
-    assert scan_service.fail_interrupted_scans(session) == 0
+    scans = session.scalars(select(Scan).order_by(Scan.id)).all()
+    assert [scan.status for scan in scans] == [Scan.STATUS_COMPLETED, Scan.STATUS_INTERRUPTED, Scan.STATUS_INTERRUPTED]
+    assert scans[1].error == scan_service.INTERRUPTED_MESSAGE
+    assert scan_service.mark_interrupted_scans(session) == 0
     assert finished.error is None
+
+
+def test_a_scan_whose_process_still_runs_is_left_running_at_startup(session):
+    # A scan script, or the old API process while --reload starts a new one.
+    session.add(Scan(subnet=SUBNET, status=Scan.STATUS_RUNNING, pid=os.getpid()))
+    session.commit()
+
+    assert scan_service.mark_interrupted_scans(session) == 0
+    assert session.scalars(select(Scan)).one().status == Scan.STATUS_RUNNING
+
+
+def test_a_scan_marked_interrupted_while_running_never_becomes_completed(session):
+    """The race behind scan #15 in the lab: "completed" with an "Interrupted" error.
+
+    Another process marks the scan interrupted while it is still running;
+    when it then finishes, it must not overwrite that with "completed".
+    """
+
+    def other_process_marks_it_interrupted(*args, **kwargs):
+        with patch.object(scan_service, "_process_alive", return_value=False):
+            assert scan_service.mark_interrupted_scans(session) == 1
+        return [{"ip": SWITCH[0], "ports": SWITCH[2], "timed_out": False}]
+
+    found = [{"ip": SWITCH[0], "mac": SWITCH[1], "vendor": "x"}]
+    with (
+        patch.object(discovery, "arp_scan", return_value=found),
+        patch.object(scanner, "scan_hosts", side_effect=other_process_marks_it_interrupted),
+    ):
+        with pytest.raises(scan_service.ScanInterruptedError):
+            scan_service.run_scan(session, SUBNET, "ens256", allowed=ALLOWED)
+
+    scan = session.scalars(select(Scan)).one()
+    assert scan.status == Scan.STATUS_INTERRUPTED
+    assert scan.error == scan_service.INTERRUPTED_MESSAGE
+    # All or nothing: the results of a scan that is not completed are not kept.
+    assert session.scalars(select(ScanResult)).all() == []
+    assert session.scalars(select(Device)).all() == []
+
+
+def test_a_failure_does_not_overwrite_an_interrupted_mark(session):
+    def interrupted_then_fails(*args, **kwargs):
+        with patch.object(scan_service, "_process_alive", return_value=False):
+            scan_service.mark_interrupted_scans(session)
+        raise scanner.ScannerError("Nmap failed: boom")
+
+    with (
+        patch.object(discovery, "arp_scan", return_value=[]),
+        patch.object(scanner, "scan_hosts", side_effect=interrupted_then_fails),
+    ):
+        with pytest.raises(scanner.ScannerError):
+            scan_service.run_scan(session, SUBNET, "ens256", allowed=ALLOWED)
+
+    assert session.scalars(select(Scan)).one().status == Scan.STATUS_INTERRUPTED
+
+
+def test_a_new_scan_records_the_process_running_it(session):
+    scan, _ = run(session, SWITCH)
+    assert scan.pid == os.getpid()
 
 
 # --- virtualisation and confirmed types ------------------------------------

@@ -601,6 +601,37 @@ test('scan history lists scans and a scan page shows its results and changes', a
   expect(screen.getByText("ssh banner on port 22 is 'Cisco SSH 1.25', OS IOS")).toBeInTheDocument()
 })
 
+test('an interrupted scan is shown as interrupted in amber, never as completed', async () => {
+  const interrupted = scan(15, 'interrupted', { error: 'Interrupted: the program stopped before the scan finished.', device_count: 6 })
+  installFakeApi({
+    'GET /scans': [interrupted, scan(3, 'completed')],
+    'GET /scans/15': { ...interrupted, results: [], changes: null },
+  })
+  const user = open('/scans')
+
+  const row = (await screen.findByRole('link', { name: '#15' })).closest('tr')!
+  expect(within(row).getByText('interrupted')).toBeInTheDocument()
+  expect(within(row).queryByText('completed')).not.toBeInTheDocument()
+  expect(row.querySelector('.bg-warn')).not.toBeNull()
+  // Its device count is not shown: only a completed scan's results count.
+  expect(within(row).getAllByRole('cell').at(-1)).toHaveTextContent('-')
+
+  await user.click(screen.getByRole('link', { name: '#15' }))
+  expect(await screen.findByText(/This scan was interrupted/)).toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: /Devices seen/ })).not.toBeInTheDocument()
+})
+
+test('an interrupted last scan is reported on the overview as a warning', async () => {
+  installFakeApi({
+    'GET /scans': [scan(15, 'interrupted', { error: 'Interrupted: the program stopped before the scan finished.' }), scan(3, 'completed')],
+  })
+  open('/')
+
+  const bar = (await screen.findByText(/The last scan/)).closest('[role="alert"]')!
+  expect(bar).toHaveTextContent('#15) was interrupted')
+  expect(bar).toHaveClass('border-l-warn')
+})
+
 // --- Topology --------------------------------------------------------------
 // jsdom has no layout engine, so React Flow cannot position handles and the
 // links themselves are not drawn here. Their rules are tested in

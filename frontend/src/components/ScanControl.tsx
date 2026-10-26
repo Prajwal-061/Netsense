@@ -36,17 +36,17 @@ export function ScanMessages({ startScan }: { startScan: StartScan }) {
         {startScan.error.message}
       </MessageBar>
     ),
-    !running && latest?.status === 'failed' && (
+    !running && (latest?.status === 'failed' || latest?.status === 'interrupted') && (
       <MessageBar
         key="failed"
-        tone="crit"
+        tone={latest.status === 'failed' ? 'crit' : 'warn'}
         title={
           <>
             The last scan (
             <Link to={`/scans/${latest.id}`} className="text-link hover:underline">
               #{latest.id}
             </Link>
-            ) failed
+            ) {latest.status === 'failed' ? 'failed' : 'was interrupted'}
           </>
         }
       >

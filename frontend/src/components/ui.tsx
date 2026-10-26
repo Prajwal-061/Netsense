@@ -52,7 +52,7 @@ export function SeverityBadge({ severity }: { severity: string }) {
   )
 }
 
-const SCAN_STATUS: Record<ScanStatus, Status> = { running: 'accent', completed: 'ok', failed: 'crit' }
+const SCAN_STATUS: Record<ScanStatus, Status> = { running: 'accent', completed: 'ok', failed: 'crit', interrupted: 'warn' }
 
 export function ScanStatusBadge({ status }: { status: ScanStatus }) {
   return (

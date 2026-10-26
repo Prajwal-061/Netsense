@@ -33,6 +33,7 @@ export const SCANS = [
   scan(5, 'failed', {
     error: 'Raw sockets are not available: the API needs CAP_NET_RAW to send ARP requests.',
   }),
+  scan(4, 'interrupted', { error: 'Interrupted: the program stopped before the scan finished.' }),
   scan(3, 'completed'),
   scan(2, 'completed', { device_count: 2 }),
   scan(1, 'completed'),
@@ -55,6 +56,7 @@ export const ROUTES: Record<string, unknown> = {
   'GET /scans': SCANS,
   'GET /scans/3': SCAN_3,
   'GET /scans/5': { ...SCANS[0], results: [], changes: null },
+  'GET /scans/4': { ...SCANS[1], results: [], changes: null },
   'GET /devices': [...DEVICES, ROUTER],
   ...Object.fromEntries([...DEVICES, ROUTER].map((item) => [`GET /devices/${item.id}`, item])),
   'GET /devices/2': COLLECTED_SWITCH,
