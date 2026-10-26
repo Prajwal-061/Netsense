@@ -5,12 +5,7 @@ export const API_URL: string = (
   import.meta.env.VITE_API_URL ?? 'http://192.168.17.132:8000'
 ).replace(/\/+$/, '')
 
-/**
- * The API contract this dashboard was written for. Must equal API_REVISION in
- * backend/app/api/health.py. A backend reporting a lower number (or none) is
- * running older code, usually because it was not restarted after an update.
- */
-export const REQUIRED_API_REVISION = 8
+export { REQUIRED_API_REVISION } from './revision'
 
 export class ApiError extends Error {
   /** HTTP status code, or null when no answer could be read. */

@@ -35,7 +35,7 @@ export default function LinkEdge({ sourceX, sourceY, targetX, targetY, data }: E
     text && (
       <span
         className="pointer-events-none absolute rounded-sm border border-line bg-canvas px-1 font-mono text-[10px] leading-[14px] text-fg-muted transition-opacity duration-200"
-        style={{ transform: `translate(-50%, -50%) translate(${point.x}px, ${point.y}px)`, opacity: Math.max(link.opacity, 0.15) }}
+        style={{ transform: `translate(-50%, -50%) translate(${point.x}px, ${point.y}px)`, opacity: link.labelOpacity }}
       >
         {text}
       </span>
@@ -86,8 +86,8 @@ export default function LinkEdge({ sourceX, sourceY, targetX, targetY, data }: E
             style={{
               transform: `translate(-50%, -50%) translate(${tagAt.x}px, ${tagAt.y}px)`,
               borderColor: link.colour,
-              color: link.colour,
-              opacity: Math.max(link.opacity, 0.15),
+              color: link.tagText,
+              opacity: link.labelOpacity,
             }}
           >
             {link.tag}

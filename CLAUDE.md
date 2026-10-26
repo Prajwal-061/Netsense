@@ -78,6 +78,7 @@ python scripts/create_admin.py                               # create the dashbo
 # Frontend (from frontend/; in a non-interactive shell run `. ~/.nvm/nvm.sh` first)
 npm run dev -- --host            # dashboard at http://192.168.17.132:5173 (API must be running too)
 npm test                         # page tests (Vitest + jsdom, fake API, no backend needed)
+npm run test:browser             # Playwright + axe-core: WCAG AA contrast of every page, both themes
 npm run build && npm run lint    # type-check, production build, lint
 
 # Without activating the venv, use backend/.venv/bin/python (not python3) in place of python
@@ -142,7 +143,7 @@ Every change to `app/db/models.py` needs a migration; `tests/test_db.py` fails i
 ## After changing backend code
 
 - A running backend keeps the code it started with. After any backend change, the user's API must be restarted (or be running with `--reload`) before the feature is tested, and `alembic upgrade head` must have been run. Check the running process, not just the tests: `curl -s http://127.0.0.1:8000/health` shows `api_revision`, and `/openapi.json` lists the routes it really serves. On 2026-10-08 a backend started before the config-diff feature produced three "bugs" at once: 422 "valid integer" on `/configs/diff`, wrong "no change" badges, and duplicate backups with old-style hashes.
-- `API_REVISION` in `backend/app/api/health.py` and `REQUIRED_API_REVISION` in `frontend/src/api.ts` must be equal (currently 7). Add 1 to both whenever an endpoint or response field the dashboard uses is added or changed. The dashboard shows a warning banner when the backend reports a lower number.
+- `API_REVISION` in `backend/app/api/health.py` and `REQUIRED_API_REVISION` in `frontend/src/api.ts` must be equal (currently 8; the frontend's lives in `frontend/src/revision.ts`). Add 1 to both whenever an endpoint or response field the dashboard uses is added or changed. The dashboard shows a warning banner when the backend reports a lower number.
 - The API refuses to start when the database is not at the newest migration (`database.migration_status`), with a message to run `alembic upgrade head`.
 - Never apply a migration that changes how stored data is interpreted while an old backend is still running against the same database: the old code then writes inconsistent rows (migration `0003` repairs the config backups this produced).
 
@@ -151,7 +152,9 @@ Every change to `app/db/models.py` needs a migration; `tests/test_db.py` fails i
 - The API base URL comes from `VITE_API_URL` (default `http://192.168.17.132:8000`); override in `frontend/.env.local`. The dashboard's origin must be in the backend's `CORS_ORIGINS`; the defaults cover port 5173 on localhost and 192.168.17.132, and `strictPort` keeps Vite on 5173.
 - When an API schema changes, update `frontend/src/api.ts` and `frontend/src/test/fakeApi.ts` to match.
 - A running scan is followed by polling `GET /scans` (2 s while running, 30 s otherwise) in `useScans`; `useRefreshWhenScanFinishes` then invalidates every query.
-- The UI has not been checked in a real browser from this VM (no browser, and headless Chromium's libraries could not be installed without sudo). Page behaviour is covered by `src/App.test.tsx`; visual changes need the user to look.
+- Page behaviour is covered by `src/App.test.tsx` (jsdom). Real-browser tests are in `e2e/` (Playwright, headless Chromium): `contrast.spec.ts` runs axe-core's colour-contrast rule on every page in both themes against a fake API (`e2e/fakeApi.ts`, data from `src/test/fixtures.ts`, shared with the page tests), and saves dark-theme screenshots to `frontend/test-results/screenshots/` (git-ignored). Look at them after visual changes.
+- Chromium's system libraries are not installed system-wide on this VM. `npm run chromium-libs` unpacks them without sudo into `~/.cache/netsense-chromium-libs` (`apt-get download` + `dpkg -x`), and `playwright.config.ts` adds that folder to `LD_LIBRARY_PATH`. Already done on this VM.
+- Colours: components use only the tokens in `src/index.css` (see docs/ui-design.md). Text uses `fg`, `fg-muted`, `fg-subtle`, `link` or a status `-fg` token, never the bare `ok`/`crit`/`accent` (those are for dots, bars and lines) and never a raw Tailwind palette colour.
 - The dev server is started with `npm run dev -- --host`, which listens on every interface including the NAT one. Development only.
 
 ## Rules

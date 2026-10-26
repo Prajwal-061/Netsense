@@ -1,6 +1,6 @@
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
-import { defineConfig } from 'vitest/config'
+import { configDefaults, defineConfig } from 'vitest/config'
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -15,5 +15,7 @@ export default defineConfig({
     // jsdom is a simulated browser, so components render without a real one.
     environment: 'jsdom',
     setupFiles: './src/test/setup.ts',
+    // e2e/ holds the Playwright browser tests (npm run test:browser).
+    exclude: [...configDefaults.exclude, 'e2e/**'],
   },
 })

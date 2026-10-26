@@ -100,6 +100,8 @@ test('blocked links are dashed, OSPF links highlighted, down links red', () => {
 
   expect([forwarding.data.dash, forwarding.data.tag, forwarding.data.colour, forwarding.data.animated]).toEqual([undefined, null, 'var(--ns-fg-subtle)', true])
   expect([blocked.data.dash, blocked.data.tag, blocked.data.opacity, blocked.data.animated]).toEqual(['6 5', 'STP blocked', 0.45, false])
+  // Only the line fades: its labels and tag stay readable, in a text colour.
+  expect([blocked.data.labelOpacity, blocked.data.tagText]).toEqual([1, 'var(--ns-fg-muted)'])
   expect([ospf.data.colour, ospf.data.width, ospf.data.tag, ospf.data.dash]).toEqual(['var(--ns-accent)', 2.25, 'OSPF', undefined])
 
   const withDown: Topology = { ...TOPOLOGY, links: TOPOLOGY.links.map((link) => (link.ospf ? { ...link, status: 'down' } : link)) }

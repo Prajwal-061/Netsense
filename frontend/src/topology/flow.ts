@@ -61,7 +61,11 @@ export interface FlowEdgeData extends Record<string, unknown> {
   width: number
   dash: string | undefined
   opacity: number
+  /** Opacity of the interface labels and tag: only lowered when the link is dimmed on purpose. */
+  labelOpacity: number
   tag: string | null
+  /** Text colour of the tag: the text token matching the line colour. */
+  tagText: string
   /** Healthy and forwarding: drawn with slowly moving dashes. */
   animated: boolean
   /** Lines shown when the pointer is over the link. */
@@ -86,6 +90,15 @@ export const COLOURS = {
   vlan: 'var(--ns-accent)',
   changed: 'var(--ns-warn)',
   management: 'var(--ns-line-strong)',
+}
+
+/** Text in a line's colour (link tags): the matching text token, readable in both themes. */
+const TEXT_COLOURS: Record<string, string> = {
+  [COLOURS.normal]: 'var(--ns-fg-muted)',
+  [COLOURS.down]: 'var(--ns-crit-fg)',
+  [COLOURS.ospf]: 'var(--ns-link)',
+  [COLOURS.changed]: 'var(--ns-warn-fg)',
+  [COLOURS.management]: 'var(--ns-fg-muted)',
 }
 
 // Routers at the top, then switches, then neighbours NetSense could not
@@ -254,6 +267,7 @@ export function toFlow(topology: Topology, options: FlowOptions = {}): { nodes: 
     const highlighted = carries(link)
     const changed = options.changed?.links.includes(link.id) ?? false
     const blocked = isBlocked(link, highlighted ? vlan : undefined)
+    const dimmed = (focus && link.a.node !== focus && link.b.node !== focus) || (vlan !== undefined && !highlighted)
     const colour =
       link.status === 'down'
         ? COLOURS.down
@@ -278,12 +292,10 @@ export function toFlow(topology: Topology, options: FlowOptions = {}): { nodes: 
         colour,
         width: changed ? 2.5 : highlighted || link.ospf ? 2.25 : link.kind === 'host' ? 1.25 : 1.5,
         dash: blocked ? '6 5' : undefined,
-        opacity:
-          (focus && link.a.node !== focus && link.b.node !== focus) || (vlan !== undefined && !highlighted)
-            ? 0.15
-            : blocked
-              ? 0.45
-              : 1,
+        opacity: dimmed ? 0.15 : blocked ? 0.45 : 1,
+        // A blocked link's line fades, its labels stay readable.
+        labelOpacity: dimmed ? 0.15 : 1,
+        tagText: TEXT_COLOURS[colour],
         tag: link.status === 'down' ? 'down' : changed ? 'changed' : blocked ? 'STP blocked' : link.ospf ? 'OSPF' : null,
         animated: link.status === 'up' && !blocked && !changed && link.kind === 'cdp',
         details: linkDetails(link, byId),
@@ -332,7 +344,9 @@ export function toFlow(topology: Topology, options: FlowOptions = {}): { nodes: 
           width: 1.5,
           dash: '2 5',
           opacity: 1,
+          labelOpacity: 1,
           tag: null,
+          tagText: TEXT_COLOURS[COLOURS.management],
           animated: false,
           details: [
             `${nameOf(byId, member.node)} ${member.interface ?? ''} on the management network`,

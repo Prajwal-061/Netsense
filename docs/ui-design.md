@@ -39,16 +39,38 @@ never names a raw colour and works in both themes.
 | `line` | 1px dividers and table borders | `#252c36` | `#dde2e7` |
 | `line-strong` | input borders, focus outlines' base | `#343d49` | `#c4cbd3` |
 | `fg` | primary text | `#d6dce3` | `#1b2027` |
-| `fg-muted` | secondary text, labels | `#8a95a3` | `#59626d` |
-| `fg-subtle` | placeholders, disabled, axis text | `#5e6875` | `#8b949e` |
-| `accent` | links, selected item, primary button, focus | `#4b93f2` | `#1f6feb` |
-| `ok` | up, healthy, forwarding, success | `#3fb950` | `#1a7f37` |
-| `warn` | warning, degraded, converging | `#d29922` | `#9a6700` |
-| `crit` | down, critical, failed, blocked | `#f0524a` | `#cf222e` |
-| `unknown` | unknown, not collected, info | `#6e7781` | `#6e7781` |
+| `fg-muted` | secondary text, labels | `#a3adba` | `#4f5862` |
+| `fg-subtle` | least important text, placeholders, axis text | `#8792a0` | `#5f6873` |
+| `link` | link text | `#79b8ff` | `#0a5bc4` |
+| `accent` | selected item, primary button, focus, bars (not text) | `#4b93f2` | `#1f6feb` |
+| `on-accent` | text on an `accent` fill | `#0b1220` | `#ffffff` |
+| `ok` | up, healthy, forwarding, success (dots, bars, lines) | `#3fb950` | `#1a7f37` |
+| `warn` | warning, degraded, converging (dots, bars, lines) | `#d29922` | `#9a6700` |
+| `crit` | down, critical, failed, blocked (dots, bars, lines) | `#f0524a` | `#cf222e` |
+| `unknown` | unknown, not collected (dots, lines) | `#7d8590` | `#6e7781` |
 
-Each status colour also has a `-soft` variant (the colour at about 12%
-opacity) for the rare tinted background, such as a selected severity filter.
+Status colours used for **text** and **tinted panels** have their own tokens,
+`-fg` (text), `-bg` (panel background) and `-border`, for `ok`, `warn`, `crit`
+and `info` (neutral, used for info findings and unknowns):
+
+| Status | Dark fg / bg / border | Light fg / bg / border |
+|---|---|---|
+| `ok` | `#56d364` / `#11261a` / `#2b6a3a` | `#116329` / `#e6f6ea` / `#8fd19e` |
+| `warn` | `#e3b341` / `#2a2111` / `#6b5216` | `#7d4e00` / `#fdf3d6` / `#e3c068` |
+| `crit` | `#ff7b72` / `#2d1517` / `#7a2e2b` | `#b3121f` / `#fdeceb` / `#f2a7a2` |
+| `info` | `#a3adba` / `#1a2029` / `#3a4350` | `#545d68` / `#eef1f4` / `#c4cbd3` |
+
+In dark mode a tinted panel is a dark tint with a coloured number and
+border, never a pastel fill. Each status colour also has a `-soft` variant
+(the colour at about 12% opacity) for the rare tinted background, such as a
+selected severity filter.
+
+**Contrast rule:** every text colour above passes WCAG AA (4.5:1) on
+`canvas`, `surface` and `raised` in its theme, and each `-fg` also on its own
+`-bg`. Never dim text with `opacity`: use `fg-subtle` instead. The browser
+tests (`npm run test:browser`, `e2e/contrast.spec.ts`) run axe-core on every
+page in both themes and fail on any text below AA, including text on the
+topology map that axe cannot judge by itself (`e2e/contrast.ts`).
 
 ### Typography
 
